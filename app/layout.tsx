@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import Navbar from "../components/navbar";
+import Footer from "../components/footer";
+import ThemeScript from "../components/theme-script";
+import { getTheme, getResolvedTheme } from "../lib/theme";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,7 +20,7 @@ const geistMono = Geist_Mono({
 
 const siteUrl = "https://rossslaney.com";
 const siteTitle = "Ross Slaney";
-const siteDescription = "Software engineer crafting resilient, human-centered digital products.";
+const siteDescription = "Ross Slaney";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -43,17 +47,28 @@ export const metadata: Metadata = {
   publisher: siteTitle,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const theme = await getTheme();
+  const resolvedTheme = getResolvedTheme(theme);
+
   return (
-    <html lang="en" className="bg-background text-foreground">
+    <html
+      lang="en"
+      className={`${resolvedTheme} bg-background text-foreground`}
+    >
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background text-foreground`}
       >
-        {children}
+        <ThemeScript theme={theme} />
+        <div className="flex flex-col min-h-screen">
+          <Navbar />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </div>
       </body>
     </html>
   );
