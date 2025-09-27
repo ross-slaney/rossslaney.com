@@ -11,6 +11,42 @@ const primaryLinks = [
     className:
       "border border-border text-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
   },
+  {
+    label: "GitHub",
+    href: "https://github.com/ross-slaney",
+    className:
+      "border border-border text-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+  },
+] as const;
+
+const skills = [
+  "Azure Cloud Solutions",
+  ".NET Development",
+  "Next.js Applications",
+  "Expo React Native",
+  "DevOps & CI/CD",
+  "Full-Stack Development",
+] as const;
+
+const certifications = [
+  {
+    title: "Microsoft Certified: DevOps Engineer Expert",
+    description:
+      "Expert-level certification in DevOps practices, CI/CD, and Azure DevOps",
+    url: "https://learn.microsoft.com/api/credentials/share/en-us/RossSlaney-8321/3AE68FC0403E7474?sharingId=7700072A9F5BBD45",
+  },
+  {
+    title: "Microsoft Certified: Azure Developer Associate",
+    description:
+      "Proficiency in designing, building, and maintaining Azure cloud applications",
+    url: "https://learn.microsoft.com/api/credentials/share/en-us/RossSlaney-8321/7A499FE3F84803A4?sharingId=7700072A9F5BBD45",
+  },
+  {
+    title: "Microsoft Certified: Azure Solutions Architect Expert",
+    description:
+      "Expert-level certification in designing and implementing Azure infrastructure and solutions",
+    url: "https://learn.microsoft.com/en-us/users/rossslaney-8321/credentials/2b5653c6c36aeffd",
+  },
 ] as const;
 
 export default function Home() {
@@ -22,11 +58,13 @@ export default function Home() {
             Ross Slaney
           </p>
           <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
-            Software Engineer
+            Azure & .NET Solutions Architect
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl">
-            Crafting resilient, human-centered digital products with a focus on
-            user experience and technical excellence.
+            Specializing in Azure cloud solutions, .NET development, and modern
+            web & mobile applications. Microsoft certified expert in DevOps and
+            Azure development with a passion for building scalable,
+            enterprise-grade solutions.
           </p>
         </header>
 
@@ -45,6 +83,51 @@ export default function Home() {
             </a>
           ))}
         </div>
+
+        {/* Skills Section */}
+        <section className="space-y-4">
+          <h2 className="text-2xl font-semibold text-foreground">
+            Core Specializations
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {skills.map((skill) => (
+              <div
+                key={skill}
+                className="bg-muted/50 border border-border rounded-lg px-4 py-3 text-sm font-medium text-foreground text-center"
+              >
+                {skill}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Certifications Section */}
+        <section className="space-y-4">
+          <h2 className="text-2xl font-semibold text-foreground">
+            Microsoft Certifications
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {certifications.map((cert) => (
+              <a
+                key={cert.title}
+                href={cert.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block bg-muted/30 border border-border rounded-lg p-6 hover:bg-muted/50 transition-colors group"
+              >
+                <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors mb-2">
+                  {cert.title}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {cert.description}
+                </p>
+                <div className="mt-3 text-xs text-primary font-medium">
+                  View Credential →
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
       </div>
     </div>
   );
