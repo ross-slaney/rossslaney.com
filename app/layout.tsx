@@ -3,8 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "../components/navbar";
 import Footer from "../components/footer";
-import ThemeScript from "../components/theme-script";
-import { getTheme, getResolvedTheme } from "../lib/theme";
+import { Providers } from "../components/providers";
+import { getServerTheme, resolveTheme } from "../lib/theme-server";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -52,23 +52,21 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const theme = await getTheme();
-  const resolvedTheme = getResolvedTheme(theme);
+  const serverTheme = await getServerTheme();
+  const resolvedTheme = resolveTheme(serverTheme);
 
   return (
-    <html
-      lang="en"
-      className={`${resolvedTheme} bg-background text-foreground`}
-    >
+    <html lang="en" className={resolvedTheme} suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background text-foreground`}
       >
-        <ThemeScript theme={theme} />
-        <div className="flex flex-col min-h-screen">
-          <Navbar />
-          <main className="flex-1">{children}</main>
-          <Footer />
-        </div>
+        <Providers theme={serverTheme}>
+          <div className="flex flex-col min-h-screen">
+            <Navbar />
+            <main className="flex-1">{children}</main>
+            <Footer />
+          </div>
+        </Providers>
       </body>
     </html>
   );
