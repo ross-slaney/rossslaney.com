@@ -40,16 +40,16 @@ jobs:
             --parameters location=${{ env.AZURE_LOCATION }} \
             --parameters projectPrefix=${{ env.PROJECT_PREFIX }}
 
-        # Extract foundation outputs
-        export ACR_NAME="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.acrName.value --output tsv)"
-        export ACR_LOGIN_SERVER="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.acrLoginServer.value --output tsv)"
-        export CONTAINER_APPS_ENV_ID="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.containerAppsEnvId.value --output tsv)"
-        export UAMI_ID="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.uamiId.value --output tsv)"
-        
-        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-        echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
-        echo "CONTAINER_APPS_ENV_ID=$CONTAINER_APPS_ENV_ID" >> $GITHUB_ENV
-        echo "UAMI_ID=$UAMI_ID" >> $GITHUB_ENV
+          # Extract foundation outputs
+          export ACR_NAME="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.acrName.value --output tsv)"
+          export ACR_LOGIN_SERVER="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.acrLoginServer.value --output tsv)"
+          export CONTAINER_APPS_ENV_ID="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.containerAppsEnvId.value --output tsv)"
+          export UAMI_ID="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.uamiId.value --output tsv)"
+
+          echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+          echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
+          echo "CONTAINER_APPS_ENV_ID=$CONTAINER_APPS_ENV_ID" >> $GITHUB_ENV
+          echo "UAMI_ID=$UAMI_ID" >> $GITHUB_ENV
 
       - name: Layer 2 — Build and Push Container Image
         run: |
@@ -70,19 +70,19 @@ jobs:
           export IMAGE_TAG="$(echo "${{ github.sha }}" | cut -c1-7)"
           export APP_IMAGE="${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${IMAGE_TAG}"
 
-        # Deploy container app with DNS and SSL configuration
-        az deployment group create \
-          --debug \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --name applications \
-          --template-file infra/layers/applications.bicep \
-          --parameters location=${{ env.AZURE_LOCATION }} \
-          --parameters projectPrefix=${{ env.PROJECT_PREFIX }} \
-          --parameters containerAppsEnvId=${{ env.CONTAINER_APPS_ENV_ID }} \
-          --parameters acrLoginServer=${{ env.ACR_LOGIN_SERVER }} \
-          --parameters containerImage="$APP_IMAGE" \
-          --parameters domainName=${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
-          --parameters uamiId=${{ env.UAMI_ID }}
+          # Deploy container app with DNS and SSL configuration
+          az deployment group create \
+            --debug \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name applications \
+            --template-file infra/layers/applications.bicep \
+            --parameters location=${{ env.AZURE_LOCATION }} \
+            --parameters projectPrefix=${{ env.PROJECT_PREFIX }} \
+            --parameters containerAppsEnvId=${{ env.CONTAINER_APPS_ENV_ID }} \
+            --parameters acrLoginServer=${{ env.ACR_LOGIN_SERVER }} \
+            --parameters containerImage="$APP_IMAGE" \
+            --parameters domainName=${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
+            --parameters uamiId=${{ env.UAMI_ID }}
 
       - name: Deployment Summary
         run: |
