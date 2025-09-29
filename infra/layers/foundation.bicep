@@ -9,6 +9,13 @@ var acrName = '${projectPrefix}prodacr'
 var containerAppEnvName = '${projectPrefix}-prod-env'
 var storageAccountName = '${projectPrefix}prodstorage'
 var logAnalyticsName = '${projectPrefix}-prod-logs'
+var uamiName = '${projectPrefix}-prod-uami'
+
+// User Assigned Managed Identity
+resource uami 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: uamiName
+  location: location
+}
 
 // Log Analytics Workspace
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -30,7 +37,18 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
     name: 'Basic'
   }
   properties: {
-    adminUserEnabled: true
+    adminUserEnabled: false // Disable admin user, use UAMI instead
+  }
+}
+
+// Role assignment for UAMI to pull from ACR
+resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(acr.id, uami.id, 'AcrPull')
+  scope: acr
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d') // AcrPull role
+    principalId: uami.properties.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
@@ -79,3 +97,4 @@ output containerAppsEnvId string = containerAppEnvironment.id
 output containerAppsEnvStaticIp string = containerAppEnvironment.properties.staticIp
 output storageAccountName string = storageAccount.name
 output resourceGroupName string = resourceGroup().name
+output uamiId string = uami.id

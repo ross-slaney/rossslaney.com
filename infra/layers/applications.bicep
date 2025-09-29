@@ -16,13 +16,13 @@ param containerImage string
 @description('Domain name for custom domain')
 param domainName string
 
+@description('User Assigned Managed Identity ID')
+param uamiId string
+
 // Variables
 var containerAppName = '${projectPrefix}-prod-app'
 
-// Reference existing DNS Zone
-resource dnsZone 'Microsoft.Network/dnsZones@2023-07-01-preview' existing = {
-  name: domainName
-}
+// DNS Zone is referenced in the dns-config module
 
 // Extract Container Apps Environment name from ID
 var containerAppsEnvName = split(containerAppsEnvId, '/')[8]
@@ -33,15 +33,14 @@ resource containerAppEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' 
 }
 
 // Deploy Container App modules in sequence
-module containerAppModule '../modules/container-app.bicep' = {
+module containerAppModule '../modules/container-app-uami.bicep' = {
   name: 'containerApp'
   params: {
     containerAppName: containerAppName
     location: location
     managedEnvironmentId: containerAppsEnvId
     acrLoginServer: acrLoginServer
-    acrUsername: 'dummy' // Will be updated to use managed identity
-    acrPassword: 'dummy' // Will be updated to use managed identity
+    uamiId: uamiId
     containerImage: containerImage
   }
 }
@@ -71,7 +70,7 @@ module certificateModule '../modules/managed-certificate.bicep' = {
 }
 
 // Update Container App with custom domain and certificate
-module containerAppCustomDomainModule '../modules/container-app-custom-domain.bicep' = {
+module containerAppCustomDomainModule '../modules/container-app-custom-domain-uami.bicep' = {
   name: 'containerAppCustomDomain'
   params: {
     containerAppName: containerAppName
@@ -80,8 +79,7 @@ module containerAppCustomDomainModule '../modules/container-app-custom-domain.bi
     domainName: domainName
     certificateId: certificateModule.outputs.certificateId
     acrLoginServer: acrLoginServer
-    acrUsername: 'dummy' // Will be updated to use managed identity
-    acrPassword: 'dummy' // Will be updated to use managed identity
+    uamiId: uamiId
     containerImage: containerImage
   }
 }
