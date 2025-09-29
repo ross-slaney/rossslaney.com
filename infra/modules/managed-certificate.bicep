@@ -19,7 +19,7 @@ resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificat
   location: location
   properties: {
     subjectName: domainName
-    domainControlValidation: 'TXT'
+    domainControlValidation: 'HTTP'
   }
 }
 

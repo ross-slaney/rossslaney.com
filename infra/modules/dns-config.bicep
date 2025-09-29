@@ -29,7 +29,7 @@ resource aRecord 'Microsoft.Network/dnsZones/A@2023-07-01-preview' = {
   }
 }
 
-// Create TXT record for domain verification (required for TXT validation)
+// Create TXT record for Container App domain verification (still needed for custom domain)
 resource txtVerificationRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-preview' = {
   parent: dnsZone
   name: 'asuid'
