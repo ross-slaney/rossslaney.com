@@ -83,102 +83,66 @@ resource blobContainer 'Microsoft.Storage/storageAccounts/blobServices/container
   }
 }
 
-// Reference existing DNS Zone
-resource dnsZone 'Microsoft.Network/dnsZones@2023-07-01-preview' existing = {
-  name: domainName
-}
-
-// Container App (clean deployment)
-resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: containerAppName
-  location: location
-  properties: {
+// Deploy Container App first to get verification ID
+module containerAppModule 'modules/container-app.bicep' = {
+  name: 'containerApp'
+  params: {
+    containerAppName: containerAppName
+    location: location
     managedEnvironmentId: containerAppEnvironment.id
-    configuration: {
-      ingress: {
-        external: true
-        targetPort: 3000
-        allowInsecure: false
-        traffic: [
-          {
-            weight: 100
-            latestRevision: true
-          }
-        ]
-      }
-      registries: [
-        {
-          server: acr.properties.loginServer
-          username: acr.listCredentials().username
-          passwordSecretRef: 'acr-password'
-        }
-      ]
-      secrets: [
-        {
-          name: 'acr-password'
-          value: acr.listCredentials().passwords[0].value
-        }
-      ]
-    }
-    template: {
-      containers: [
-        {
-          name: 'main'
-          image: containerImage
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
-          env: [
-            {
-              name: 'NODE_ENV'
-              value: 'production'
-            }
-            {
-              name: 'PORT'
-              value: '3000'
-            }
-          ]
-        }
-      ]
-      scale: {
-        minReplicas: 1
-        maxReplicas: 3
-        rules: [
-          {
-            name: 'http-scaling'
-            http: {
-              metadata: {
-                concurrentRequests: '10'
-              }
-            }
-          }
-        ]
-      }
-    }
+    acrLoginServer: acr.properties.loginServer
+    acrUsername: acr.listCredentials().username
+    acrPassword: acr.listCredentials().passwords[0].value
+    containerImage: containerImage
   }
 }
 
-// Create A record (will be updated with correct IP in workflow)
-resource aRecord 'Microsoft.Network/dnsZones/A@2023-07-01-preview' = {
-  parent: dnsZone
-  name: '@'
-  properties: {
-    TTL: 300
-    ARecords: [
-      {
-        ipv4Address: '1.1.1.1' // Placeholder - updated by workflow
-      }
-    ]
+// Deploy DNS configuration using outputs from Container App
+module dnsModule 'modules/dns-config.bicep' = {
+  name: 'dnsConfig'
+  params: {
+    domainName: domainName
+    containerAppFqdn: containerAppModule.outputs.containerAppFqdn
+    customDomainVerificationId: containerAppModule.outputs.customDomainVerificationId
+    containerAppsEnvironmentStaticIp: containerAppEnvironment.properties.staticIp
+  }
+}
+
+// Deploy managed certificate after DNS is configured
+module certificateModule 'modules/managed-certificate.bicep' = {
+  name: 'managedCertificate'
+  params: {
+    domainName: domainName
+    location: location
+    managedEnvironmentId: containerAppEnvironment.id
+  }
+  dependsOn: [
+    dnsModule
+  ]
+}
+
+// Update Container App with custom domain and certificate
+module containerAppCustomDomainModule 'modules/container-app-custom-domain.bicep' = {
+  name: 'containerAppCustomDomain'
+  params: {
+    containerAppName: containerAppName
+    location: location
+    managedEnvironmentId: containerAppEnvironment.id
+    domainName: domainName
+    certificateId: certificateModule.outputs.certificateId
+    acrLoginServer: acr.properties.loginServer
+    acrUsername: acr.listCredentials().username
+    acrPassword: acr.listCredentials().passwords[0].value
+    containerImage: containerImage
   }
 }
 
 // Outputs
 output acrLoginServer string = acr.properties.loginServer
 output acrName string = acr.name
-output containerAppFqdn string = containerApp.properties.configuration.ingress.fqdn
+output containerAppFqdn string = containerAppCustomDomainModule.outputs.containerAppFqdn
 output storageAccountName string = storageAccount.name
-output containerAppName string = containerApp.name
+output containerAppName string = containerAppCustomDomainModule.outputs.containerAppName
 output resourceGroupName string = resourceGroup().name
 output customDomainUrl string = 'https://${domainName}'
-output containerAppIp string = containerApp.properties.configuration.ingress.fqdn // Will be resolved to IP in workflow
+output managedCertificateId string = certificateModule.outputs.certificateId

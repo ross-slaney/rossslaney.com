@@ -8,9 +8,10 @@ on:
 env:
   AZURE_RESOURCE_GROUP: FOUNDATION
   AZURE_LOCATION: centralus
+  PROJECT_PREFIX: ross
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,89 +29,69 @@ jobs:
             --name ${{ env.AZURE_RESOURCE_GROUP }} \
             --location ${{ env.AZURE_LOCATION }}
 
-      - name: Deploy Infrastructure
-        id: deploy-infra
+      - name: Layer 1 — Deploy Foundation (ACR, Container Apps Env, Storage)
         run: |
-          # Deploy the Bicep template
-          deployment_output=$(az deployment group create \
+          az deployment group create \
+            --debug \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --template-file infra/main.bicep \
-            --parameters infra/main.parameters.json \
-            --parameters domainName=${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
-            --query 'properties.outputs' \
-            --output json)
+            --name foundation \
+            --template-file infra/layers/foundation.bicep \
+            --parameters infra/layers/parameters-foundation.json \
+            --parameters location=${{ env.AZURE_LOCATION }} \
+            --parameters projectPrefix=${{ env.PROJECT_PREFIX }}
 
-          # Extract outputs and set as environment variables
-          echo "ACR_LOGIN_SERVER=$(echo $deployment_output | jq -r '.acrLoginServer.value')" >> $GITHUB_ENV
-          echo "ACR_NAME=$(echo $deployment_output | jq -r '.acrName.value')" >> $GITHUB_ENV
-          echo "CONTAINER_APP_NAME=$(echo $deployment_output | jq -r '.containerAppName.value')" >> $GITHUB_ENV
-          echo "CONTAINER_APP_FQDN=$(echo $deployment_output | jq -r '.containerAppFqdn.value')" >> $GITHUB_ENV
+          # Extract foundation outputs
+          export ACR_NAME="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.acrName.value --output tsv)"
+          export ACR_LOGIN_SERVER="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.acrLoginServer.value --output tsv)"
+          export CONTAINER_APPS_ENV_ID="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.containerAppsEnvId.value --output tsv)"
 
-      - name: Build and Push Docker Image
+          echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+          echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
+          echo "CONTAINER_APPS_ENV_ID=$CONTAINER_APPS_ENV_ID" >> $GITHUB_ENV
+
+      - name: Layer 2 — Build and Push Container Image
         run: |
-          # Login to ACR
-          az acr login --name ${{ env.ACR_NAME }}
+          export IMAGE_TAG="$(echo "${{ github.sha }}" | cut -c1-7)"
 
-          # Build and tag the image
-          docker build -t ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${{ github.sha }} .
-          docker build -t ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:latest .
+          # Build and push using Azure Container Registry build (no Docker required)
+          az acr build \
+            --registry ${{ env.ACR_NAME }} \
+            --image rossslaney-app:$IMAGE_TAG \
+            --image rossslaney-app:latest \
+            --file Dockerfile \
+            .
 
-          # Push the image
-          docker push ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${{ github.sha }}
-          docker push ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:latest
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
-      - name: Update DNS A Record
+      - name: Layer 3 — Deploy Container App with DNS and SSL
         run: |
-          echo "🌐 Updating A record with correct Container App IP"
+          export IMAGE_TAG="$(echo "${{ github.sha }}" | cut -c1-7)"
+          export APP_IMAGE="${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${IMAGE_TAG}"
 
-          # Get the IP address of the Container App
-          CONTAINER_APP_IP=$(dig +short ${{ env.CONTAINER_APP_FQDN }} | head -1)
-
-          if [ -z "$CONTAINER_APP_IP" ]; then
-            echo "❌ Could not resolve Container App IP address"
-            exit 1
-          fi
-
-          echo "✅ Container App IP: $CONTAINER_APP_IP"
-
-          # Update the A record with the correct IP
-          az network dns record-set a update \
+          # Deploy container app with DNS and SSL configuration
+          az deployment group create \
+            --debug \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --zone-name ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
-            --name "@" \
-            --set ARecords[0].ipv4Address=$CONTAINER_APP_IP
-
-          echo "✅ A record updated: ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} -> $CONTAINER_APP_IP"
-
-      - name: Configure Custom Domain
-        run: |
-          echo "🔒 Adding custom domain with SSL certificate"
-
-          # Add custom domain to Container App (this auto-provisions SSL)
-          az containerapp hostname add \
-            --hostname ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
-
-          echo "✅ Custom domain added with automatic SSL certificate"
-
-      - name: Update Container App
-        run: |
-          # Update the container app with the new image
-          az containerapp update \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --image ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${{ github.sha }}
+            --name applications \
+            --template-file infra/layers/applications.bicep \
+            --parameters location=${{ env.AZURE_LOCATION }} \
+            --parameters projectPrefix=${{ env.PROJECT_PREFIX }} \
+            --parameters containerAppsEnvId=${{ env.CONTAINER_APPS_ENV_ID }} \
+            --parameters acrLoginServer=${{ env.ACR_LOGIN_SERVER }} \
+            --parameters containerImage="$APP_IMAGE" \
+            --parameters domainName=${{ secrets.AZURE_DNSZONE_DOMAINNAME }}
 
       - name: Deployment Summary
         run: |
+          export CONTAINER_APP_FQDN="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name applications --query properties.outputs.containerAppFqdn.value --output tsv)"
+
           echo "✅ Deployment completed successfully!"
           echo "🚀 Application URL: https://${{ secrets.AZURE_DNSZONE_DOMAINNAME }}"
-          echo "🌐 DNS alias record and SSL certificate configured via Bicep"
-          echo "🐳 Container App FQDN: ${{ env.CONTAINER_APP_FQDN }}"
+          echo "🌐 DNS, SSL certificate, and custom domain fully configured via Bicep"
+          echo "🐳 Container App FQDN: $CONTAINER_APP_FQDN"
           echo "📦 ACR: ${{ env.ACR_LOGIN_SERVER }}"
           echo "🗂️ Resource Group: ${{ env.AZURE_RESOURCE_GROUP }}"
           echo ""
           echo "🎉 Your app is now live with custom domain and SSL!"
           echo "🔒 Azure-managed certificate automatically provisioned"
-          echo "🔗 Infrastructure fully managed by Bicep"
+          echo "📦 Complete infrastructure-as-code solution using layered Bicep deployments"
