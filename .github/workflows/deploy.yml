@@ -59,35 +59,6 @@ jobs:
           docker push ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${{ github.sha }}
           docker push ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:latest
 
-      - name: Configure DNS and Custom Domain
-        run: |
-          echo "🌐 Configuring DNS and custom domain for ${{ secrets.AZURE_DNSZONE_DOMAINNAME }}"
-
-          # Delete existing CNAME record if it exists (ignore errors)
-          az network dns record-set cname delete \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --zone-name ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
-            --name "@" \
-            --yes 2>/dev/null || echo "No existing CNAME record to delete"
-
-          # Create new CNAME record
-          az network dns record-set cname set-record \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --zone-name ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
-            --record-set-name "@" \
-            --cname ${{ env.CONTAINER_APP_FQDN }} \
-            --ttl 300
-
-          echo "✅ CNAME record created: ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} -> ${{ env.CONTAINER_APP_FQDN }}"
-
-          # Add custom domain to container app (this will auto-provision SSL)
-          az containerapp hostname add \
-            --hostname ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
-
-          echo "✅ Custom domain added with automatic SSL certificate"
-
       - name: Update Container App
         run: |
           # Update the container app with the new image
@@ -100,7 +71,7 @@ jobs:
         run: |
           echo "✅ Deployment completed successfully!"
           echo "🚀 Application URL: https://${{ secrets.AZURE_DNSZONE_DOMAINNAME }}"
-          echo "🌐 DNS automatically configured via GitHub workflow"
+          echo "🌐 DNS and SSL automatically configured via Bicep deployment script"
           echo "🐳 Container App FQDN: ${{ env.CONTAINER_APP_FQDN }}"
           echo "📦 ACR: ${{ env.ACR_LOGIN_SERVER }}"
           echo "🗂️ Resource Group: ${{ env.AZURE_RESOURCE_GROUP }}"

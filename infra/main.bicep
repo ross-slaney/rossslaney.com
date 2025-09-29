@@ -83,7 +83,9 @@ resource blobContainer 'Microsoft.Storage/storageAccounts/blobServices/container
   }
 }
 
-// Container App (without custom domain - will be added via workflow)
+// DNS Zone is referenced in the deployment script via environment variables
+
+// Container App (without custom domain initially)
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
   location: location
@@ -151,6 +153,84 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         ]
       }
     }
+  }
+}
+
+// Deployment script to configure DNS and custom domain
+resource dnsConfigScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
+  name: '${containerAppName}-dns-config'
+  location: location
+  kind: 'AzureCLI'
+  properties: {
+    azCliVersion: '2.50.0'
+    timeout: 'PT30M'
+    retentionInterval: 'PT1H'
+    environmentVariables: [
+      {
+        name: 'RESOURCE_GROUP'
+        value: resourceGroup().name
+      }
+      {
+        name: 'DNS_ZONE_NAME'
+        value: domainName
+      }
+      {
+        name: 'CONTAINER_APP_NAME'
+        value: containerAppName
+      }
+      {
+        name: 'CONTAINER_APP_FQDN'
+        value: containerApp.properties.configuration.ingress.fqdn
+      }
+    ]
+    scriptContent: '''
+      echo "🌐 Configuring DNS for $DNS_ZONE_NAME"
+      
+      # Get Container App IP address
+      echo "📡 Resolving Container App IP..."
+      CONTAINER_APP_IP=$(nslookup $CONTAINER_APP_FQDN | grep -A 1 "Name:" | grep "Address:" | awk '{print $2}' | head -1)
+      
+      if [ -z "$CONTAINER_APP_IP" ]; then
+        echo "Trying alternative DNS resolution..."
+        CONTAINER_APP_IP=$(dig +short $CONTAINER_APP_FQDN | head -1)
+      fi
+      
+      if [ -z "$CONTAINER_APP_IP" ]; then
+        echo "❌ Could not resolve Container App IP"
+        exit 1
+      fi
+      
+      echo "✅ Container App IP: $CONTAINER_APP_IP"
+      
+      # Delete existing A record if it exists
+      az network dns record-set a delete \
+        --resource-group $RESOURCE_GROUP \
+        --zone-name $DNS_ZONE_NAME \
+        --name "@" \
+        --yes 2>/dev/null || echo "No existing A record"
+      
+      # Create A record pointing to Container App IP
+      az network dns record-set a add-record \
+        --resource-group $RESOURCE_GROUP \
+        --zone-name $DNS_ZONE_NAME \
+        --record-set-name "@" \
+        --ipv4-address $CONTAINER_APP_IP \
+        --ttl 300
+      
+      echo "✅ A record created: $DNS_ZONE_NAME -> $CONTAINER_APP_IP"
+      
+      # Wait for DNS propagation
+      echo "⏳ Waiting for DNS propagation..."
+      sleep 60
+      
+      # Add custom domain to Container App
+      az containerapp hostname add \
+        --hostname $DNS_ZONE_NAME \
+        --name $CONTAINER_APP_NAME \
+        --resource-group $RESOURCE_GROUP
+      
+      echo "✅ Custom domain added with SSL certificate"
+    '''
   }
 }
 
