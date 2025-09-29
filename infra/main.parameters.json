@@ -3,10 +3,10 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "namePrefix": {
-      "value": "rossslaney"
+      "value": "ross"
     },
     "location": {
-      "value": "East US"
+      "value": "centralus"
     },
     "environment": {
       "value": "prod"

@@ -83,12 +83,6 @@ resource blobContainer 'Microsoft.Storage/storageAccounts/blobServices/container
   }
 }
 
-// Get existing DNS Zone
-resource dnsZone 'Microsoft.Network/dnsZones@2023-07-01-preview' existing = {
-  name: domainName
-  scope: resourceGroup()
-}
-
 // Container App (without custom domain initially)
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
@@ -160,104 +154,11 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-// Create CNAME record pointing to Container App
-resource cnameRecord 'Microsoft.Network/dnsZones/CNAME@2023-07-01-preview' = {
-  parent: dnsZone
-  name: '@'
-  properties: {
-    TTL: 300
-    CNAMERecord: {
-      cname: containerApp.properties.configuration.ingress.fqdn
-    }
-  }
-}
-
-// Add custom domain to Container App after DNS is configured
-resource containerAppCustomDomain 'Microsoft.App/containerApps@2024-03-01' = {
-  name: containerAppName
-  location: location
-  properties: {
-    managedEnvironmentId: containerAppEnvironment.id
-    configuration: {
-      ingress: {
-        external: true
-        targetPort: 3000
-        allowInsecure: false
-        traffic: [
-          {
-            weight: 100
-            latestRevision: true
-          }
-        ]
-        customDomains: [
-          {
-            name: domainName
-            bindingType: 'SniEnabled'
-          }
-        ]
-      }
-      registries: [
-        {
-          server: acr.properties.loginServer
-          username: acr.listCredentials().username
-          passwordSecretRef: 'acr-password'
-        }
-      ]
-      secrets: [
-        {
-          name: 'acr-password'
-          value: acr.listCredentials().passwords[0].value
-        }
-      ]
-    }
-    template: {
-      containers: [
-        {
-          name: 'main'
-          image: containerImage
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
-          env: [
-            {
-              name: 'NODE_ENV'
-              value: 'production'
-            }
-            {
-              name: 'PORT'
-              value: '3000'
-            }
-          ]
-        }
-      ]
-      scale: {
-        minReplicas: 1
-        maxReplicas: 3
-        rules: [
-          {
-            name: 'http-scaling'
-            http: {
-              metadata: {
-                concurrentRequests: '10'
-              }
-            }
-          }
-        ]
-      }
-    }
-  }
-  dependsOn: [
-    cnameRecord
-  ]
-}
-
 // Outputs
 output acrLoginServer string = acr.properties.loginServer
 output acrName string = acr.name
-output containerAppFqdn string = containerAppCustomDomain.properties.configuration.ingress.fqdn
+output containerAppFqdn string = containerApp.properties.configuration.ingress.fqdn
 output storageAccountName string = storageAccount.name
-output storageAccountKey string = storageAccount.listKeys().keys[0].value
-output containerAppName string = containerAppCustomDomain.name
+output containerAppName string = containerApp.name
 output resourceGroupName string = resourceGroup().name
 output customDomainUrl string = 'https://${domainName}'

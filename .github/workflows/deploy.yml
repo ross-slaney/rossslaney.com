@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_RESOURCE_GROUP: rg-rossslaney-prod
-  AZURE_LOCATION: eastus
+  AZURE_RESOURCE_GROUP: FOUNDATION
+  AZURE_LOCATION: centralus
 
 jobs:
   build-and-deploy:
@@ -58,6 +58,24 @@ jobs:
           # Push the image
           docker push ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${{ github.sha }}
           docker push ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:latest
+
+      - name: Configure DNS
+        run: |
+          # Create CNAME record pointing to Container App
+          az network dns record-set cname set-record \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --zone-name ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
+            --record-set-name "@" \
+            --cname ${{ env.CONTAINER_APP_FQDN }} \
+            --ttl 300
+
+      - name: Add Custom Domain to Container App
+        run: |
+          # Add custom domain to container app
+          az containerapp hostname add \
+            --hostname ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
 
       - name: Update Container App
         run: |
