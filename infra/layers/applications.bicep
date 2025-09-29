@@ -56,7 +56,24 @@ module dnsModule '../modules/dns-config.bicep' = {
   }
 }
 
-// Deploy managed certificate after DNS is configured
+// First, add custom domain to Container App without certificate
+module containerAppCustomDomainModule '../modules/container-app-custom-domain-no-cert.bicep' = {
+  name: 'containerAppCustomDomain'
+  params: {
+    containerAppName: containerAppName
+    location: location
+    managedEnvironmentId: containerAppsEnvId
+    domainName: domainName
+    acrLoginServer: acrLoginServer
+    uamiId: uamiId
+    containerImage: containerImage
+  }
+  dependsOn: [
+    dnsModule
+  ]
+}
+
+// Now create managed certificate after hostname is added
 module certificateModule '../modules/managed-certificate.bicep' = {
   name: 'managedCertificate'
   params: {
@@ -65,13 +82,13 @@ module certificateModule '../modules/managed-certificate.bicep' = {
     managedEnvironmentId: containerAppsEnvId
   }
   dependsOn: [
-    dnsModule
+    containerAppCustomDomainModule
   ]
 }
 
-// Update Container App with custom domain and certificate
-module containerAppCustomDomainModule '../modules/container-app-custom-domain-uami.bicep' = {
-  name: 'containerAppCustomDomain'
+// Finally, update Container App to bind the certificate
+module containerAppWithCertificateModule '../modules/container-app-bind-certificate.bicep' = {
+  name: 'containerAppWithCertificate'
   params: {
     containerAppName: containerAppName
     location: location
@@ -82,10 +99,13 @@ module containerAppCustomDomainModule '../modules/container-app-custom-domain-ua
     uamiId: uamiId
     containerImage: containerImage
   }
+  dependsOn: [
+    certificateModule
+  ]
 }
 
 // Outputs
-output containerAppFqdn string = containerAppCustomDomainModule.outputs.containerAppFqdn
-output containerAppName string = containerAppCustomDomainModule.outputs.containerAppName
+output containerAppFqdn string = containerAppWithCertificateModule.outputs.containerAppFqdn
+output containerAppName string = containerAppWithCertificateModule.outputs.containerAppName
 output customDomainUrl string = 'https://${domainName}'
 output managedCertificateId string = certificateModule.outputs.certificateId
