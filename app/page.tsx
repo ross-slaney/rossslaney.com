@@ -58,11 +58,11 @@ export default function Home() {
             Ross Slaney
           </p>
           <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
-            Azure & .NET Solutions Architect
+            Full Stack Software Engineer
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl">
-            Specializing in Azure cloud solutions, .NET development, and modern
-            web & mobile applications. Microsoft certified expert in DevOps and
+            Specializing in Azure cloud solutions, .NET development, Next.js,
+            and Expo React Native. Microsoft certified expert in DevOps and
             Azure development with a passion for building scalable,
             enterprise-grade solutions.
           </p>
