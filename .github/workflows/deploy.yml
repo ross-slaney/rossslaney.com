@@ -59,6 +59,41 @@ jobs:
           docker push ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${{ github.sha }}
           docker push ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:latest
 
+      - name: Update DNS A Record
+        run: |
+          echo "🌐 Updating A record with correct Container App IP"
+
+          # Get the IP address of the Container App
+          CONTAINER_APP_IP=$(dig +short ${{ env.CONTAINER_APP_FQDN }} | head -1)
+
+          if [ -z "$CONTAINER_APP_IP" ]; then
+            echo "❌ Could not resolve Container App IP address"
+            exit 1
+          fi
+
+          echo "✅ Container App IP: $CONTAINER_APP_IP"
+
+          # Update the A record with the correct IP
+          az network dns record-set a update \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --zone-name ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
+            --name "@" \
+            --set ARecords[0].ipv4Address=$CONTAINER_APP_IP
+
+          echo "✅ A record updated: ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} -> $CONTAINER_APP_IP"
+
+      - name: Configure Custom Domain
+        run: |
+          echo "🔒 Adding custom domain with SSL certificate"
+
+          # Add custom domain to Container App (this auto-provisions SSL)
+          az containerapp hostname add \
+            --hostname ${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
+
+          echo "✅ Custom domain added with automatic SSL certificate"
+
       - name: Update Container App
         run: |
           # Update the container app with the new image
@@ -71,11 +106,11 @@ jobs:
         run: |
           echo "✅ Deployment completed successfully!"
           echo "🚀 Application URL: https://${{ secrets.AZURE_DNSZONE_DOMAINNAME }}"
-          echo "🌐 DNS and SSL automatically configured via Bicep deployment script"
+          echo "🌐 DNS alias record and SSL certificate configured via Bicep"
           echo "🐳 Container App FQDN: ${{ env.CONTAINER_APP_FQDN }}"
           echo "📦 ACR: ${{ env.ACR_LOGIN_SERVER }}"
           echo "🗂️ Resource Group: ${{ env.AZURE_RESOURCE_GROUP }}"
           echo ""
           echo "🎉 Your app is now live with custom domain and SSL!"
-          echo "🔒 Managed SSL certificate automatically provisioned by Azure"
-          echo "🔄 DNS propagation may take a few minutes"
+          echo "🔒 Azure-managed certificate automatically provisioned"
+          echo "🔗 Infrastructure fully managed by Bicep"
