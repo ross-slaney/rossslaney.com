@@ -59,23 +59,23 @@ jobs:
           docker push ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${{ github.sha }}
           docker push ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:latest
 
-    - name: Update Container App
-      run: |
-        # Update the container app with the new image
-        az containerapp update \
-          --name ${{ env.CONTAINER_APP_NAME }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --image ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${{ github.sha }}
-        
-    - name: Deployment Summary
-      run: |
-        echo "✅ Deployment completed successfully!"
-        echo "🚀 Application URL: https://${{ secrets.AZURE_DNSZONE_DOMAINNAME }}"
-        echo "🌐 DNS automatically configured via Bicep template"
-        echo "🐳 Container App FQDN: ${{ env.CONTAINER_APP_FQDN }}"
-        echo "📦 ACR: ${{ env.ACR_LOGIN_SERVER }}"
-        echo "🗂️ Resource Group: ${{ env.AZURE_RESOURCE_GROUP }}"
-        echo ""
-        echo "🎉 Your app is now live and accessible!"
-        echo "⏳ SSL certificate will be automatically provisioned by Azure"
-        echo "🔄 DNS propagation may take a few minutes"
+      - name: Update Container App
+        run: |
+          # Update the container app with the new image
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --image ${{ env.ACR_LOGIN_SERVER }}/rossslaney-app:${{ github.sha }}
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "🚀 Application URL: https://${{ secrets.AZURE_DNSZONE_DOMAINNAME }}"
+          echo "🌐 DNS automatically configured via Bicep template"
+          echo "🐳 Container App FQDN: ${{ env.CONTAINER_APP_FQDN }}"
+          echo "📦 ACR: ${{ env.ACR_LOGIN_SERVER }}"
+          echo "🗂️ Resource Group: ${{ env.AZURE_RESOURCE_GROUP }}"
+          echo ""
+          echo "🎉 Your app is now live and accessible!"
+          echo "⏳ SSL certificate will be automatically provisioned by Azure"
+          echo "🔄 DNS propagation may take a few minutes"
