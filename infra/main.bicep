@@ -83,7 +83,7 @@ resource blobContainer 'Microsoft.Storage/storageAccounts/blobServices/container
   }
 }
 
-// Container App (without custom domain initially)
+// Container App (without custom domain - will be added via workflow)
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
   location: location
