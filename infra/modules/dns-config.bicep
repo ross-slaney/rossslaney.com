@@ -16,6 +16,12 @@ param frontDoorEndpointHostName string
 @description('Front Door endpoint resource ID')
 param frontDoorEndpointId string
 
+@description('Apex domain validation token from Front Door')
+param apexDomainValidationToken string
+
+@description('WWW domain validation token from Front Door')
+param wwwDomainValidationToken string
+
 // Reference existing DNS Zone
 resource dnsZone 'Microsoft.Network/dnsZones@2023-07-01-preview' existing = {
   name: domainName
@@ -61,8 +67,37 @@ resource txtVerificationRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-previe
   }
 }
 
-// Note: Front Door domain validation TXT records will be created automatically
-// when Front Door managed certificates are provisioned
+// Front Door domain validation TXT record for apex domain
+resource apexDomainValidationTxtRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-preview' = {
+  parent: dnsZone
+  name: '_dnsauth'
+  properties: {
+    TTL: 3600
+    TXTRecords: [
+      {
+        value: [
+          apexDomainValidationToken
+        ]
+      }
+    ]
+  }
+}
+
+// Front Door domain validation TXT record for www subdomain
+resource wwwDomainValidationTxtRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-preview' = {
+  parent: dnsZone
+  name: '_dnsauth.www'
+  properties: {
+    TTL: 3600
+    TXTRecords: [
+      {
+        value: [
+          wwwDomainValidationToken
+        ]
+      }
+    ]
+  }
+}
 
 // Outputs
 output aRecordCreated bool = true

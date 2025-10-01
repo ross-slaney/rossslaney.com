@@ -208,3 +208,5 @@ resource wwwRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
 output frontDoorEndpointHostName string = frontDoorEndpoint.properties.hostName
 output frontDoorProfileName string = frontDoorProfile.name
 output frontDoorEndpointId string = frontDoorEndpoint.id
+output apexCustomDomainValidationToken string = apexCustomDomain.properties.validationProperties.validationToken
+output wwwCustomDomainValidationToken string = wwwCustomDomain.properties.validationProperties.validationToken
