@@ -15,7 +15,7 @@ var frontDoorProfileName = '${projectPrefix}-frontdoor-profile'
 var frontDoorEndpointName = '${projectPrefix}-frontdoor-endpoint'
 
 // Azure Front Door Profile
-resource frontDoorProfile 'Microsoft.Cdn/profiles@2023-05-01' = {
+resource frontDoorProfile 'Microsoft.Cdn/profiles@2024-02-01' = {
   name: frontDoorProfileName
   location: 'global'
   sku: {
@@ -25,7 +25,7 @@ resource frontDoorProfile 'Microsoft.Cdn/profiles@2023-05-01' = {
 }
 
 // Front Door Endpoint
-resource frontDoorEndpoint 'Microsoft.Cdn/profiles/afdEndpoints@2023-05-01' = {
+resource frontDoorEndpoint 'Microsoft.Cdn/profiles/afdEndpoints@2024-02-01' = {
   parent: frontDoorProfile
   name: frontDoorEndpointName
   location: 'global'
@@ -35,7 +35,7 @@ resource frontDoorEndpoint 'Microsoft.Cdn/profiles/afdEndpoints@2023-05-01' = {
 }
 
 // Origin Group for Container App
-resource originGroup 'Microsoft.Cdn/profiles/originGroups@2023-05-01' = {
+resource originGroup 'Microsoft.Cdn/profiles/originGroups@2024-02-01' = {
   parent: frontDoorProfile
   name: 'container-app-origin-group'
   properties: {
@@ -54,7 +54,7 @@ resource originGroup 'Microsoft.Cdn/profiles/originGroups@2023-05-01' = {
 }
 
 // Origin for Container App
-resource origin 'Microsoft.Cdn/profiles/originGroups/origins@2023-05-01' = {
+resource origin 'Microsoft.Cdn/profiles/originGroups/origins@2024-02-01' = {
   parent: originGroup
   name: 'container-app-origin'
   properties: {
@@ -70,7 +70,7 @@ resource origin 'Microsoft.Cdn/profiles/originGroups/origins@2023-05-01' = {
 }
 
 // Custom Domain for apex domain
-resource apexCustomDomain 'Microsoft.Cdn/profiles/customDomains@2023-05-01' = {
+resource apexCustomDomain 'Microsoft.Cdn/profiles/customDomains@2024-02-01' = {
   parent: frontDoorProfile
   name: replace(domainName, '.', '-')
   properties: {
@@ -83,7 +83,7 @@ resource apexCustomDomain 'Microsoft.Cdn/profiles/customDomains@2023-05-01' = {
 }
 
 // Custom Domain for www subdomain
-resource wwwCustomDomain 'Microsoft.Cdn/profiles/customDomains@2023-05-01' = {
+resource wwwCustomDomain 'Microsoft.Cdn/profiles/customDomains@2024-02-01' = {
   parent: frontDoorProfile
   name: 'www-${replace(domainName, '.', '-')}'
   properties: {
@@ -95,8 +95,52 @@ resource wwwCustomDomain 'Microsoft.Cdn/profiles/customDomains@2023-05-01' = {
   }
 }
 
+// Rule Set for www redirect
+resource wwwRedirectRuleSet 'Microsoft.Cdn/profiles/ruleSets@2024-02-01' = {
+  parent: frontDoorProfile
+  name: 'wwwRedirectRuleSet'
+}
+
+// Rule for redirecting www to apex
+resource wwwRedirectRule 'Microsoft.Cdn/profiles/ruleSets/rules@2024-02-01' = {
+  parent: wwwRedirectRuleSet
+  name: 'wwwToApexRedirect'
+  properties: {
+    order: 1
+    conditions: [
+      {
+        name: 'RequestHeader'
+        parameters: {
+          '@odata.type': '#Microsoft.Azure.Cdn.Models.DeliveryRuleRequestHeaderConditionParameters'
+          selector: 'Host'
+          operator: 'Equal'
+          matchValues: [
+            'www.${domainName}'
+          ]
+          transforms: []
+          negateCondition: false
+        }
+      }
+    ]
+    actions: [
+      {
+        name: 'UrlRedirect'
+        parameters: {
+          '@odata.type': '#Microsoft.Azure.Cdn.Models.DeliveryRuleUrlRedirectActionParameters'
+          redirectType: 'PermanentRedirect'
+          destinationProtocol: 'Https'
+          customHostname: domainName
+          customPath: ''
+          customQueryString: ''
+          customFragment: ''
+        }
+      }
+    ]
+  }
+}
+
 // Route for apex domain (forward to Container App)
-resource apexRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2023-05-01' = {
+resource apexRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
   parent: frontDoorEndpoint
   name: 'apex-route'
   properties: {
@@ -118,6 +162,7 @@ resource apexRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2023-05-01' = {
     forwardingProtocol: 'HttpsOnly'
     linkToDefaultDomain: 'Enabled'
     httpsRedirect: 'Enabled'
+    enabledState: 'Enabled'
   }
   dependsOn: [
     origin
@@ -125,7 +170,7 @@ resource apexRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2023-05-01' = {
 }
 
 // Route for www subdomain (redirect to apex)
-resource wwwRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2023-05-01' = {
+resource wwwRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
   parent: frontDoorEndpoint
   name: 'www-redirect-route'
   properties: {
@@ -146,65 +191,22 @@ resource wwwRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2023-05-01' = {
     ]
     linkToDefaultDomain: 'Disabled'
     httpsRedirect: 'Enabled'
-    // This will be configured as a redirect rule
-    ruleSetReferences: [
+    ruleSets: [
       {
         id: wwwRedirectRuleSet.id
       }
     ]
+    enabledState: 'Enabled'
   }
   dependsOn: [
     origin
-    wwwRedirectRuleSet
+    wwwRedirectRule
   ]
-}
-
-// Rule Set for www redirect
-resource wwwRedirectRuleSet 'Microsoft.Cdn/profiles/ruleSets@2023-05-01' = {
-  parent: frontDoorProfile
-  name: 'wwwRedirectRuleSet'
-}
-
-// Rule for redirecting www to apex
-resource wwwRedirectRule 'Microsoft.Cdn/profiles/ruleSets/rules@2023-05-01' = {
-  parent: wwwRedirectRuleSet
-  name: 'wwwToApexRedirect'
-  properties: {
-    order: 1
-    conditions: [
-      {
-        name: 'RequestHeader'
-        parameters: {
-          typeName: 'DeliveryRuleRequestHeaderConditionParameters'
-          selector: 'Host'
-          operator: 'Equal'
-          matchValues: [
-            'www.${domainName}'
-          ]
-          transforms: []
-          negateCondition: false
-        }
-      }
-    ]
-    actions: [
-      {
-        name: 'UrlRedirect'
-        parameters: {
-          typeName: 'DeliveryRuleUrlRedirectActionParameters'
-          redirectType: 'PermanentRedirect'
-          destinationProtocol: 'Https'
-          customHostname: domainName
-          customPath: ''
-          customQueryString: ''
-          customFragment: ''
-        }
-      }
-    ]
-  }
 }
 
 // Outputs
 output frontDoorEndpointHostName string = frontDoorEndpoint.properties.hostName
 output frontDoorProfileName string = frontDoorProfile.name
-output apexCustomDomainValidationToken string = apexCustomDomain.properties.validationProperties.validationToken
-output wwwCustomDomainValidationToken string = wwwCustomDomain.properties.validationProperties.validationToken
+// Note: Validation tokens will be available after domain validation is complete
+output apexCustomDomainValidationToken string = ''
+output wwwCustomDomainValidationToken string = ''
