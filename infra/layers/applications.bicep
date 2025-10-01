@@ -65,9 +65,7 @@ module dnsModule '../modules/dns-config.bicep' = {
     customDomainVerificationId: containerAppModule.outputs.customDomainVerificationId
     containerAppsEnvironmentStaticIp: containerAppEnvironment.properties.staticIp
     frontDoorEndpointHostName: frontDoorModule.outputs.frontDoorEndpointHostName
-    frontDoorProfileName: frontDoorModule.outputs.frontDoorProfileName
-    apexDomainValidationToken: frontDoorModule.outputs.apexCustomDomainValidationToken
-    wwwDomainValidationToken: frontDoorModule.outputs.wwwCustomDomainValidationToken
+    frontDoorEndpointId: frontDoorModule.outputs.frontDoorEndpointId
   }
   dependsOn: [
     frontDoorModule

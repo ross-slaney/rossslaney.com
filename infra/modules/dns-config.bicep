@@ -13,29 +13,22 @@ param containerAppsEnvironmentStaticIp string
 @description('Front Door endpoint hostname')
 param frontDoorEndpointHostName string
 
-@description('Front Door profile name')
-param frontDoorProfileName string
-
-@description('Apex domain validation token for Front Door')
-param apexDomainValidationToken string
-
-@description('WWW domain validation token for Front Door')
-param wwwDomainValidationToken string
+@description('Front Door endpoint resource ID')
+param frontDoorEndpointId string
 
 // Reference existing DNS Zone
 resource dnsZone 'Microsoft.Network/dnsZones@2023-07-01-preview' existing = {
   name: domainName
 }
 
-// Create ALIAS record for apex domain pointing to Front Door
-// Note: ALIAS records are preferred over CNAME for apex domains
+// Create ALIAS record for apex domain pointing to Front Door endpoint
 resource apexAliasRecord 'Microsoft.Network/dnsZones/A@2023-07-01-preview' = {
   parent: dnsZone
   name: '@'
   properties: {
-    TTL: 300
+    TTL: 3600
     targetResource: {
-      id: resourceId('Microsoft.Cdn/profiles', frontDoorProfileName)
+      id: frontDoorEndpointId
     }
   }
 }
@@ -45,7 +38,7 @@ resource wwwCnameRecord 'Microsoft.Network/dnsZones/CNAME@2023-07-01-preview' = 
   parent: dnsZone
   name: 'www'
   properties: {
-    TTL: 300
+    TTL: 3600
     CNAMERecord: {
       cname: frontDoorEndpointHostName
     }
@@ -68,37 +61,8 @@ resource txtVerificationRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-previe
   }
 }
 
-// Create TXT records for Front Door domain validation (apex domain)
-resource apexDomainValidationTxtRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-preview' = {
-  parent: dnsZone
-  name: '_dnsauth'
-  properties: {
-    TTL: 300
-    TXTRecords: [
-      {
-        value: [
-          apexDomainValidationToken
-        ]
-      }
-    ]
-  }
-}
-
-// Create TXT records for Front Door domain validation (www subdomain)
-resource wwwDomainValidationTxtRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-preview' = {
-  parent: dnsZone
-  name: '_dnsauth.www'
-  properties: {
-    TTL: 300
-    TXTRecords: [
-      {
-        value: [
-          wwwDomainValidationToken
-        ]
-      }
-    ]
-  }
-}
+// Note: Front Door domain validation TXT records will be created automatically
+// when Front Door managed certificates are provisioned
 
 // Outputs
 output aRecordCreated bool = true

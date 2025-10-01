@@ -207,6 +207,4 @@ resource wwwRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
 // Outputs
 output frontDoorEndpointHostName string = frontDoorEndpoint.properties.hostName
 output frontDoorProfileName string = frontDoorProfile.name
-// Note: Validation tokens will be available after domain validation is complete
-output apexCustomDomainValidationToken string = ''
-output wwwCustomDomainValidationToken string = ''
+output frontDoorEndpointId string = frontDoorEndpoint.id
