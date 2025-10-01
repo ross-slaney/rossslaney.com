@@ -45,7 +45,18 @@ module containerAppModule '../modules/container-app-uami.bicep' = {
   }
 }
 
-// Deploy DNS configuration using outputs from Container App
+// Deploy Front Door for www redirect
+module frontDoorModule '../modules/front-door-www-redirect.bicep' = {
+  name: 'frontDoorWwwRedirect'
+  params: {
+    domainName: domainName
+    location: location
+    containerAppFqdn: containerAppModule.outputs.containerAppFqdn
+    projectPrefix: projectPrefix
+  }
+}
+
+// Deploy DNS configuration using outputs from Container App and Front Door
 module dnsModule '../modules/dns-config.bicep' = {
   name: 'dnsConfig'
   params: {
@@ -53,7 +64,13 @@ module dnsModule '../modules/dns-config.bicep' = {
     containerAppFqdn: containerAppModule.outputs.containerAppFqdn
     customDomainVerificationId: containerAppModule.outputs.customDomainVerificationId
     containerAppsEnvironmentStaticIp: containerAppEnvironment.properties.staticIp
+    frontDoorEndpointHostName: frontDoorModule.outputs.frontDoorEndpointHostName
+    apexDomainValidationToken: frontDoorModule.outputs.apexCustomDomainValidationToken
+    wwwDomainValidationToken: frontDoorModule.outputs.wwwCustomDomainValidationToken
   }
+  dependsOn: [
+    frontDoorModule
+  ]
 }
 
 // First, add custom domain to Container App without certificate
@@ -109,3 +126,5 @@ output containerAppFqdn string = containerAppWithCertificateModule.outputs.conta
 output containerAppName string = containerAppWithCertificateModule.outputs.containerAppName
 output customDomainUrl string = 'https://${domainName}'
 output managedCertificateId string = certificateModule.outputs.certificateId
+output frontDoorEndpointHostName string = frontDoorModule.outputs.frontDoorEndpointHostName
+output frontDoorProfileName string = frontDoorModule.outputs.frontDoorProfileName
