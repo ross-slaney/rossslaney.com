@@ -51,8 +51,8 @@ const certifications = [
 
 export default function Home() {
   return (
-    <div className="flex items-center justify-center px-6 py-16 sm:px-10">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
+    <div className="flex items-center justify-center px-4 py-16 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10">
         <header className="flex flex-col gap-3 text-center sm:text-left">
           <p className="text-sm font-semibold uppercase tracking-[0.35em] text-muted-foreground">
             Ross Slaney
