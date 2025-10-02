@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 const primaryLinks = [
   {
     label: "Get in touch",
@@ -53,19 +55,45 @@ export default function Home() {
   return (
     <div className="flex items-center justify-center px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-10">
-        <header className="flex flex-col gap-3 text-center sm:text-left">
-          <p className="text-sm font-semibold uppercase tracking-[0.35em] text-muted-foreground">
-            Ross Slaney
-          </p>
-          <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
-            Full Stack Software Engineer
-          </h1>
-          <p className="text-lg text-muted-foreground max-w-2xl">
-            Specializing in Azure cloud solutions, .NET development, Next.js,
-            and Expo React Native. Microsoft certified expert in DevOps and
-            Azure development with experience building scalable,
-            enterprise-grade solutions.
-          </p>
+        <header className="flex flex-col-reverse sm:flex-row gap-6 sm:gap-8 items-center sm:items-start text-center sm:text-left">
+          <div className="flex flex-col gap-3 flex-1">
+            <p className="text-sm font-semibold uppercase tracking-[0.35em] text-muted-foreground">
+              Ross Slaney
+            </p>
+            <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
+              Full Stack Software Engineer
+            </h1>
+            <p className="text-lg text-muted-foreground max-w-2xl">
+              Specializing in Azure cloud solutions, .NET development, Next.js,
+              and Expo React Native. Microsoft certified expert in DevOps and
+              Azure development with experience building scalable,
+              enterprise-grade solutions.
+            </p>
+          </div>
+
+          <div className="relative flex-shrink-0">
+            <div className="relative w-48 h-48 sm:w-56 sm:h-56 lg:w-64 lg:h-64">
+              {/* Cartoon-style decorative border layers */}
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-primary/10 rounded-[3rem] rotate-3 transform transition-transform hover:rotate-6"></div>
+              <div className="absolute inset-0 bg-gradient-to-tr from-muted to-muted/50 rounded-[3rem] -rotate-3 transform transition-transform hover:-rotate-6"></div>
+
+              {/* Image container with cartoon border */}
+              <div className="relative w-full h-full rounded-[2.5rem] overflow-hidden border-4 border-primary/30 shadow-2xl transform transition-transform hover:scale-105">
+                <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent"></div>
+                <Image
+                  src="https://files.rossslaney.com/assets/ross.png"
+                  alt="Ross Slaney"
+                  fill
+                  className="object-cover"
+                  priority
+                />
+              </div>
+
+              {/* Fun decorative dots */}
+              <div className="absolute -top-2 -right-2 w-4 h-4 bg-primary rounded-full animate-pulse"></div>
+              <div className="absolute -bottom-3 -left-3 w-3 h-3 bg-primary/60 rounded-full animate-pulse delay-150"></div>
+            </div>
+          </div>
         </header>
 
         <div className="flex flex-col sm:flex-row gap-4">
