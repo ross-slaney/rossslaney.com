@@ -22,6 +22,9 @@ param apexDomainValidationToken string
 @description('WWW domain validation token from Front Door')
 param wwwDomainValidationToken string
 
+@description('Files domain validation token from Front Door')
+param filesDomainValidationToken string
+
 // Reference existing DNS Zone
 resource dnsZone 'Microsoft.Network/dnsZones@2023-07-01-preview' existing = {
   name: domainName
@@ -43,6 +46,18 @@ resource apexAliasRecord 'Microsoft.Network/dnsZones/A@2023-07-01-preview' = {
 resource wwwCnameRecord 'Microsoft.Network/dnsZones/CNAME@2023-07-01-preview' = {
   parent: dnsZone
   name: 'www'
+  properties: {
+    TTL: 3600
+    CNAMERecord: {
+      cname: frontDoorEndpointHostName
+    }
+  }
+}
+
+// Create CNAME record for files subdomain pointing to Front Door
+resource filesCnameRecord 'Microsoft.Network/dnsZones/CNAME@2023-07-01-preview' = {
+  parent: dnsZone
+  name: 'files'
   properties: {
     TTL: 3600
     CNAMERecord: {
@@ -77,6 +92,22 @@ resource wwwDomainValidationTxtRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01
       {
         value: [
           wwwDomainValidationToken
+        ]
+      }
+    ]
+  }
+}
+
+// Front Door domain validation TXT record for files subdomain
+resource filesDomainValidationTxtRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-preview' = {
+  parent: dnsZone
+  name: '_dnsauth.files'
+  properties: {
+    TTL: 3600
+    TXTRecords: [
+      {
+        value: [
+          filesDomainValidationToken
         ]
       }
     ]

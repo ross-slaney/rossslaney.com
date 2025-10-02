@@ -7,12 +7,16 @@ param location string
 @description('Container App FQDN (backend)')
 param containerAppFqdn string
 
+@description('Storage Account Blob Endpoint')
+param storageBlobEndpoint string
+
 @description('Project prefix for naming')
 param projectPrefix string
 
 // Variables
 var frontDoorProfileName = '${projectPrefix}-frontdoor-profile'
 var frontDoorEndpointName = '${projectPrefix}-frontdoor-endpoint'
+var storageBlobHostName = replace(replace(storageBlobEndpoint, 'https://', ''), '/', '')
 
 // Azure Front Door Profile
 resource frontDoorProfile 'Microsoft.Cdn/profiles@2024-02-01' = {
@@ -69,6 +73,41 @@ resource origin 'Microsoft.Cdn/profiles/originGroups/origins@2024-02-01' = {
   }
 }
 
+// Origin Group for Storage Account
+resource storageOriginGroup 'Microsoft.Cdn/profiles/originGroups@2024-02-01' = {
+  parent: frontDoorProfile
+  name: 'storage-origin-group'
+  properties: {
+    loadBalancingSettings: {
+      sampleSize: 4
+      successfulSamplesRequired: 3
+      additionalLatencyInMilliseconds: 50
+    }
+    healthProbeSettings: {
+      probePath: '/'
+      probeRequestType: 'HEAD'
+      probeProtocol: 'Https'
+      probeIntervalInSeconds: 100
+    }
+  }
+}
+
+// Origin for Storage Account Blob
+resource storageOrigin 'Microsoft.Cdn/profiles/originGroups/origins@2024-02-01' = {
+  parent: storageOriginGroup
+  name: 'storage-blob-origin'
+  properties: {
+    hostName: storageBlobHostName
+    httpPort: 80
+    httpsPort: 443
+    originHostHeader: storageBlobHostName
+    priority: 1
+    weight: 1000
+    enabledState: 'Enabled'
+    enforceCertificateNameCheck: true
+  }
+}
+
 // Custom Domain for apex domain
 resource apexCustomDomain 'Microsoft.Cdn/profiles/customDomains@2024-02-01' = {
   parent: frontDoorProfile
@@ -88,6 +127,19 @@ resource wwwCustomDomain 'Microsoft.Cdn/profiles/customDomains@2024-02-01' = {
   name: 'www-${replace(domainName, '.', '-')}'
   properties: {
     hostName: 'www.${domainName}'
+    tlsSettings: {
+      certificateType: 'ManagedCertificate'
+      minimumTlsVersion: 'TLS12'
+    }
+  }
+}
+
+// Custom Domain for files subdomain
+resource filesCustomDomain 'Microsoft.Cdn/profiles/customDomains@2024-02-01' = {
+  parent: frontDoorProfile
+  name: 'files-${replace(domainName, '.', '-')}'
+  properties: {
+    hostName: 'files.${domainName}'
     tlsSettings: {
       certificateType: 'ManagedCertificate'
       minimumTlsVersion: 'TLS12'
@@ -204,9 +256,56 @@ resource wwwRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
   ]
 }
 
+// Route for files subdomain (storage account)
+resource filesRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
+  parent: frontDoorEndpoint
+  name: 'files-route'
+  properties: {
+    customDomains: [
+      {
+        id: filesCustomDomain.id
+      }
+    ]
+    originGroup: {
+      id: storageOriginGroup.id
+    }
+    supportedProtocols: [
+      'Http'
+      'Https'
+    ]
+    patternsToMatch: [
+      '/*'
+    ]
+    forwardingProtocol: 'HttpsOnly'
+    linkToDefaultDomain: 'Enabled'
+    httpsRedirect: 'Enabled'
+    enabledState: 'Enabled'
+    cacheConfiguration: {
+      queryStringCachingBehavior: 'IgnoreQueryString'
+      compressionSettings: {
+        contentTypesToCompress: [
+          'application/javascript'
+          'application/json'
+          'application/xml'
+          'text/css'
+          'text/html'
+          'text/javascript'
+          'text/plain'
+          'image/svg+xml'
+        ]
+        isCompressionEnabled: true
+      }
+    }
+  }
+  dependsOn: [
+    storageOrigin
+  ]
+}
+
 // Outputs
 output frontDoorEndpointHostName string = frontDoorEndpoint.properties.hostName
 output frontDoorProfileName string = frontDoorProfile.name
 output frontDoorEndpointId string = frontDoorEndpoint.id
 output apexCustomDomainValidationToken string = apexCustomDomain.properties.validationProperties.validationToken
 output wwwCustomDomainValidationToken string = wwwCustomDomain.properties.validationProperties.validationToken
+output filesCustomDomainValidationToken string = filesCustomDomain.properties.validationProperties.validationToken

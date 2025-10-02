@@ -19,6 +19,9 @@ param domainName string
 @description('User Assigned Managed Identity ID')
 param uamiId string
 
+@description('Storage Account Blob Endpoint')
+param storageBlobEndpoint string
+
 // Variables
 var containerAppName = '${projectPrefix}-prod-app'
 
@@ -45,13 +48,14 @@ module containerAppModule '../modules/container-app-uami.bicep' = {
   }
 }
 
-// Deploy Front Door for www redirect
+// Deploy Front Door for www redirect and files CDN
 module frontDoorModule '../modules/front-door-www-redirect.bicep' = {
   name: 'frontDoorWwwRedirect'
   params: {
     domainName: domainName
     location: location
     containerAppFqdn: containerAppModule.outputs.containerAppFqdn
+    storageBlobEndpoint: storageBlobEndpoint
     projectPrefix: projectPrefix
   }
 }
@@ -68,6 +72,7 @@ module dnsModule '../modules/dns-config.bicep' = {
     frontDoorEndpointId: frontDoorModule.outputs.frontDoorEndpointId
     apexDomainValidationToken: frontDoorModule.outputs.apexCustomDomainValidationToken
     wwwDomainValidationToken: frontDoorModule.outputs.wwwCustomDomainValidationToken
+    filesDomainValidationToken: frontDoorModule.outputs.filesCustomDomainValidationToken
   }
   dependsOn: [
     frontDoorModule
@@ -78,5 +83,6 @@ module dnsModule '../modules/dns-config.bicep' = {
 output containerAppFqdn string = containerAppModule.outputs.containerAppFqdn
 output containerAppName string = containerAppModule.outputs.containerAppName
 output customDomainUrl string = 'https://${domainName}'
+output filesCustomDomainUrl string = 'https://files.${domainName}'
 output frontDoorEndpointHostName string = frontDoorModule.outputs.frontDoorEndpointHostName
 output frontDoorProfileName string = frontDoorModule.outputs.frontDoorProfileName

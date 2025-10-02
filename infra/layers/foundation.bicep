@@ -96,5 +96,6 @@ output acrName string = acr.name
 output containerAppsEnvId string = containerAppEnvironment.id
 output containerAppsEnvStaticIp string = containerAppEnvironment.properties.staticIp
 output storageAccountName string = storageAccount.name
+output storageBlobEndpoint string = storageAccount.properties.primaryEndpoints.blob
 output resourceGroupName string = resourceGroup().name
 output uamiId string = uami.id

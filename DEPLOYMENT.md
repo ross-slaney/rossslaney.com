@@ -28,8 +28,9 @@ The deployment uses a layered Bicep architecture:
 
 - **Azure Container App**: Hosts the Next.js application
 - **Azure Front Door**: Global CDN with custom domain and SSL
-- **DNS Configuration**: Automated DNS records for custom domain
+- **DNS Configuration**: Automated DNS records for custom domains
 - **www → apex redirect**: Automatic redirect from www to apex domain
+- **files.{domain} CDN**: Storage account served through Front Door with edge caching
 
 ## Deployment Process
 
@@ -55,15 +56,17 @@ You can also trigger deployment manually:
 DNS is automatically configured during deployment! The infrastructure creates:
 
 1. **A record (apex domain)**: Points to Azure Front Door using ALIAS record
-2. **CNAME record (www subdomain)**: Points to Azure Front Door
-3. **TXT records**: Front Door domain validation for SSL certificate issuance
-4. **Front Door routing**: Routes traffic from custom domain to Container App
+2. **CNAME record (www subdomain)**: Points to Azure Front Door for redirect
+3. **CNAME record (files subdomain)**: Points to Azure Front Door for CDN storage
+4. **TXT records**: Front Door domain validation for SSL certificate issuance
+5. **Front Door routing**: Routes traffic from custom domains to appropriate origins
 
 The Container App uses its default `.azurecontainerapps.io` domain, while Front Door handles:
 
 - Custom domain SSL/TLS certificates
 - Global CDN and caching
 - www to apex domain redirect
+- Storage account CDN at `files.{domain}`
 
 No manual DNS configuration is required - everything is automated!
 
@@ -86,14 +89,44 @@ The Container App is configured with:
 - **Memory**: 0.5 GB
 - **Scaling rule**: HTTP-based (10 concurrent requests per replica)
 
-## Storage Account
+## Storage Account with CDN
 
-A blob storage account is created for storing assets:
+A blob storage account is created for storing media and assets, served through Azure Front Door CDN:
 
-- **Account name**: `{namePrefix}{environment}storage`
+- **Account name**: `{projectPrefix}prodstorage`
 - **Container**: `assets` (public access)
 - **Tier**: Hot
 - **Replication**: LRS (Locally Redundant Storage)
+- **CDN Domain**: `files.{domainName}` (e.g., `files.rossslaney.com`)
+- **Features**:
+  - Global edge caching at 100+ POPs worldwide
+  - Automatic compression for text/images
+  - SSL/TLS with managed certificates
+  - HTTPS-only access
+
+### Using the Files CDN
+
+Upload files to your storage account, then access them via:
+
+```
+https://files.{domainName}/assets/{filename}
+```
+
+Example:
+
+```bash
+# Upload a file
+az storage blob upload \
+  --account-name {storageAccountName} \
+  --container-name assets \
+  --name my-image.jpg \
+  --file ./my-image.jpg
+
+# Access via CDN
+https://files.rossslaney.com/assets/my-image.jpg
+```
+
+Files are automatically cached at edge locations for optimal performance worldwide.
 
 ## Monitoring
 

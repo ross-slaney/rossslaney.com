@@ -45,11 +45,13 @@ jobs:
           export ACR_LOGIN_SERVER="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.acrLoginServer.value --output tsv)"
           export CONTAINER_APPS_ENV_ID="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.containerAppsEnvId.value --output tsv)"
           export UAMI_ID="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.uamiId.value --output tsv)"
+          export STORAGE_BLOB_ENDPOINT="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name foundation --query properties.outputs.storageBlobEndpoint.value --output tsv)"
 
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
           echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
           echo "CONTAINER_APPS_ENV_ID=$CONTAINER_APPS_ENV_ID" >> $GITHUB_ENV
           echo "UAMI_ID=$UAMI_ID" >> $GITHUB_ENV
+          echo "STORAGE_BLOB_ENDPOINT=$STORAGE_BLOB_ENDPOINT" >> $GITHUB_ENV
 
       - name: Layer 2 — Build and Push Container Image
         run: |
@@ -82,7 +84,8 @@ jobs:
             --parameters acrLoginServer=${{ env.ACR_LOGIN_SERVER }} \
             --parameters containerImage="$APP_IMAGE" \
             --parameters domainName=${{ secrets.AZURE_DNSZONE_DOMAINNAME }} \
-            --parameters uamiId=${{ env.UAMI_ID }}
+            --parameters uamiId=${{ env.UAMI_ID }} \
+            --parameters storageBlobEndpoint=${{ env.STORAGE_BLOB_ENDPOINT }}
 
           # Extract Front Door profile name
           export AFD_PROFILE_NAME="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name applications --query properties.outputs.frontDoorProfileName.value --output tsv)"
@@ -111,6 +114,14 @@ jobs:
             --custom-domain-name "www-$DOMAIN_BASE" \
             --output none || true
 
+          # Trigger validation for files subdomain
+          echo "Triggering validation for files subdomain (files-$DOMAIN_BASE)..."
+          az afd custom-domain update \
+            --profile-name ${{ env.AFD_PROFILE_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --custom-domain-name "files-$DOMAIN_BASE" \
+            --output none || true
+
           echo "⏳ Waiting for domain validation to complete..."
           sleep 30
 
@@ -125,16 +136,19 @@ jobs:
         run: |
           export CONTAINER_APP_FQDN="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name applications --query properties.outputs.containerAppFqdn.value --output tsv)"
           export FRONT_DOOR_ENDPOINT="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name applications --query properties.outputs.frontDoorEndpointHostName.value --output tsv)"
+          export FILES_URL="$(az deployment group show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name applications --query properties.outputs.filesCustomDomainUrl.value --output tsv)"
 
           echo "✅ Deployment completed successfully!"
           echo ""
           echo "🚀 Application URLs:"
           echo "   Primary: https://${{ secrets.AZURE_DNSZONE_DOMAINNAME }}"
           echo "   WWW (redirects to primary): https://www.${{ secrets.AZURE_DNSZONE_DOMAINNAME }}"
+          echo "   Files CDN: $FILES_URL"
           echo ""
           echo "🌐 Infrastructure:"
           echo "   Front Door Endpoint: $FRONT_DOOR_ENDPOINT"
           echo "   Container App FQDN: $CONTAINER_APP_FQDN"
+          echo "   Storage Endpoint: ${{ env.STORAGE_BLOB_ENDPOINT }}"
           echo "   ACR: ${{ env.ACR_LOGIN_SERVER }}"
           echo "   Resource Group: ${{ env.AZURE_RESOURCE_GROUP }}"
           echo ""
@@ -144,4 +158,9 @@ jobs:
           echo "   ✓ DNS validation completed"
           echo "   ✓ HTTPS-only access enforced"
           echo ""
-          echo "🎉 Your app is now live with custom domain, SSL, and www redirect!"
+          echo "📦 Storage:"
+          echo "   ✓ CDN-enabled storage at $FILES_URL"
+          echo "   ✓ Global edge caching and compression"
+          echo "   ✓ Custom domain with SSL"
+          echo ""
+          echo "🎉 Your app is now live with custom domain, SSL, www redirect, and CDN storage!"
