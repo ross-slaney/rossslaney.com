@@ -277,7 +277,7 @@ resource filesRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
       '/*'
     ]
     forwardingProtocol: 'HttpsOnly'
-    linkToDefaultDomain: 'Enabled'
+    linkToDefaultDomain: 'Disabled'
     httpsRedirect: 'Enabled'
     enabledState: 'Enabled'
     cacheConfiguration: {
