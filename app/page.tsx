@@ -63,7 +63,7 @@ export default function Home() {
           <p className="text-lg text-muted-foreground max-w-2xl">
             Specializing in Azure cloud solutions, .NET development, Next.js,
             and Expo React Native. Microsoft certified expert in DevOps and
-            Azure development with a passion for building scalable,
+            Azure development with experience building scalable,
             enterprise-grade solutions.
           </p>
         </header>
