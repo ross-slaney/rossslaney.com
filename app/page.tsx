@@ -44,9 +44,9 @@ const certifications = [
     url: "https://learn.microsoft.com/api/credentials/share/en-us/RossSlaney-8321/7A499FE3F84803A4?sharingId=7700072A9F5BBD45",
   },
   {
-    title: "Microsoft Certified: Azure Solutions Architect Expert",
+    title: "Microsoft Certified: Azure AI Engineer Associate",
     description:
-      "Expert-level certification in designing and implementing Azure infrastructure and solutions",
+      "Proficiency designing and implementing Azure AI solutions using Azure AI services, Azure AI Search, and Azure Open AI.",
     url: "https://learn.microsoft.com/en-us/users/rossslaney-8321/credentials/2b5653c6c36aeffd",
   },
 ] as const;
@@ -60,6 +60,7 @@ export default function Home() {
             <p className="text-sm font-semibold uppercase tracking-[0.35em] text-muted-foreground">
               Ross Slaney
             </p>
+            <p className="text-sm text-muted-foreground">📍 Santa Cruz, CA</p>
             <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
               Full Stack Software Engineer
             </h1>
