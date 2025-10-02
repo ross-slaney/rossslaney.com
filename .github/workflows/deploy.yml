@@ -140,7 +140,7 @@ jobs:
           echo ""
           echo "🔐 Security:"
           echo "   ✓ Azure Front Door with www → apex redirect"
-          echo "   ✓ Managed SSL/TLS certificates"
+          echo "   ✓ Front Door managed SSL/TLS certificates"
           echo "   ✓ DNS validation completed"
           echo "   ✓ HTTPS-only access enforced"
           echo ""

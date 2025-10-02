@@ -1,13 +1,13 @@
 @description('Domain name')
 param domainName string
 
-@description('Container App FQDN')
+@description('Container App FQDN - for reference only')
 param containerAppFqdn string
 
-@description('Custom domain verification ID for TXT record')
+@description('Custom domain verification ID for TXT record - for reference only')
 param customDomainVerificationId string
 
-@description('Container Apps Environment static IP')
+@description('Container Apps Environment static IP - for reference only')
 param containerAppsEnvironmentStaticIp string
 
 @description('Front Door endpoint hostname')
@@ -48,22 +48,6 @@ resource wwwCnameRecord 'Microsoft.Network/dnsZones/CNAME@2023-07-01-preview' = 
     CNAMERecord: {
       cname: frontDoorEndpointHostName
     }
-  }
-}
-
-// Create TXT record for Container App domain verification (still needed for custom domain)
-resource txtVerificationRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-preview' = {
-  parent: dnsZone
-  name: 'asuid'
-  properties: {
-    TTL: 300
-    TXTRecords: [
-      {
-        value: [
-          customDomainVerificationId
-        ]
-      }
-    ]
   }
 }
 

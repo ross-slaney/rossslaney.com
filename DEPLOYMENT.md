@@ -14,14 +14,22 @@ This document describes how to deploy the rossslaney.com Next.js application to 
 
 ## Infrastructure Components
 
-The Bicep template (`infra/main.bicep`) creates:
+The deployment uses a layered Bicep architecture:
 
-- **Azure Container Registry (ACR)**: Stores Docker images
+### Layer 1: Foundation (`infra/layers/foundation.bicep`)
+
+- **Azure Container Registry (ACR)**: Stores Docker images with managed identity authentication
 - **Container App Environment**: Managed environment for container apps
-- **Azure Container App**: Hosts the Next.js application
 - **Log Analytics Workspace**: Centralized logging
 - **Storage Account**: Blob storage for assets
-- **DNS Integration**: Custom domain configuration
+- **User Assigned Managed Identity (UAMI)**: Secure ACR access
+
+### Layer 2: Applications (`infra/layers/applications.bicep`)
+
+- **Azure Container App**: Hosts the Next.js application
+- **Azure Front Door**: Global CDN with custom domain and SSL
+- **DNS Configuration**: Automated DNS records for custom domain
+- **www → apex redirect**: Automatic redirect from www to apex domain
 
 ## Deployment Process
 
@@ -44,12 +52,18 @@ You can also trigger deployment manually:
 
 ## DNS Configuration
 
-DNS is automatically configured during deployment! The Bicep template:
+DNS is automatically configured during deployment! The infrastructure creates:
 
-1. **References your existing DNS zone** using the `AZURE_DNSZONE_DOMAINNAME` secret
-2. **Creates a CNAME record** pointing `@` to the Container App FQDN
-3. **Configures the custom domain** on the Container App with SSL
-4. **Handles the dependency chain** to ensure proper ordering
+1. **A record (apex domain)**: Points to Azure Front Door using ALIAS record
+2. **CNAME record (www subdomain)**: Points to Azure Front Door
+3. **TXT records**: Front Door domain validation for SSL certificate issuance
+4. **Front Door routing**: Routes traffic from custom domain to Container App
+
+The Container App uses its default `.azurecontainerapps.io` domain, while Front Door handles:
+
+- Custom domain SSL/TLS certificates
+- Global CDN and caching
+- www to apex domain redirect
 
 No manual DNS configuration is required - everything is automated!
 
@@ -99,18 +113,24 @@ A blob storage account is created for storing assets:
 ### Useful Commands
 
 ```bash
-# Check deployment status
-az deployment group show --resource-group rg-rossslaney-prod --name main
+# Check foundation deployment status
+az deployment group show --resource-group FOUNDATION --name foundation
+
+# Check applications deployment status
+az deployment group show --resource-group FOUNDATION --name applications
 
 # View container app logs
-az containerapp logs show --name rossslaney-prod-app --resource-group rg-rossslaney-prod
+az containerapp logs show --name ross-prod-app --resource-group FOUNDATION
 
 # Update container app manually
-az containerapp update --name rossslaney-prod-app --resource-group rg-rossslaney-prod --image <new-image>
+az containerapp update --name ross-prod-app --resource-group FOUNDATION --image <new-image>
 
 # Check DNS resolution
 dig rossslaney.com
 nslookup rossslaney.com
+
+# Check Front Door status
+az afd profile show --profile-name <profile-name> --resource-group FOUNDATION
 ```
 
 ## Cost Optimization
@@ -122,16 +142,26 @@ nslookup rossslaney.com
 
 ## Security Considerations
 
-- Container registry admin user is enabled for simplicity
-- Consider using managed identity for production
-- Storage account allows public blob access for assets
-- HTTPS is enforced on the Container App
-- Secrets are managed through GitHub repository secrets
+- **Managed Identity**: Uses User Assigned Managed Identity for ACR authentication (no passwords stored)
+- **Front Door SSL**: Automatic managed SSL/TLS certificates from Azure
+- **HTTPS-only**: All traffic is forced to HTTPS through Front Door
+- **Storage Access**: Blob storage allows public access for static assets
+- **Secrets**: Managed through GitHub repository secrets and Azure Key Vault ready
+
+## Architecture Benefits
+
+- ✅ **Global Performance**: Azure Front Door provides global CDN and edge caching
+- ✅ **Automatic SSL**: Managed certificates with auto-renewal
+- ✅ **www Redirect**: Automatic redirect from www to apex domain
+- ✅ **Secure Authentication**: Managed identity for container registry (no passwords)
+- ✅ **Scalable**: Container Apps auto-scale based on HTTP traffic
+- ✅ **Cost Effective**: Consumption-based pricing for all services
 
 ## Next Steps
 
-1. **Custom Domain SSL**: Azure automatically provisions SSL certificates
-2. **CDN Integration**: Consider Azure CDN for global content delivery
-3. **Monitoring**: Add Application Insights for detailed monitoring
-4. **Backup**: Configure backup for critical data
-5. **CI/CD Enhancements**: Add staging environments and blue-green deployments
+1. **Monitoring**: Add Application Insights for detailed application monitoring
+2. **Staging Environment**: Deploy a staging layer for pre-production testing
+3. **Custom Caching**: Configure Front Door caching rules for optimal performance
+4. **WAF Protection**: Enable Web Application Firewall on Front Door for security
+5. **Backup**: Configure backup for critical data in storage account
+6. **Custom Error Pages**: Configure custom 404/500 pages in Front Door

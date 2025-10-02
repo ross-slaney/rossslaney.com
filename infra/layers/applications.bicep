@@ -74,58 +74,9 @@ module dnsModule '../modules/dns-config.bicep' = {
   ]
 }
 
-// First, add custom domain to Container App without certificate
-module containerAppCustomDomainModule '../modules/container-app-custom-domain-no-cert.bicep' = {
-  name: 'containerAppCustomDomain'
-  params: {
-    containerAppName: containerAppName
-    location: location
-    managedEnvironmentId: containerAppsEnvId
-    domainName: domainName
-    acrLoginServer: acrLoginServer
-    uamiId: uamiId
-    containerImage: containerImage
-  }
-  dependsOn: [
-    dnsModule
-  ]
-}
-
-// Now create managed certificate after hostname is added
-module certificateModule '../modules/managed-certificate.bicep' = {
-  name: 'managedCertificate'
-  params: {
-    domainName: domainName
-    location: location
-    managedEnvironmentId: containerAppsEnvId
-  }
-  dependsOn: [
-    containerAppCustomDomainModule
-  ]
-}
-
-// Finally, update Container App to bind the certificate
-module containerAppWithCertificateModule '../modules/container-app-bind-certificate.bicep' = {
-  name: 'containerAppWithCertificate'
-  params: {
-    containerAppName: containerAppName
-    location: location
-    managedEnvironmentId: containerAppsEnvId
-    domainName: domainName
-    certificateId: certificateModule.outputs.certificateId
-    acrLoginServer: acrLoginServer
-    uamiId: uamiId
-    containerImage: containerImage
-  }
-  dependsOn: [
-    certificateModule
-  ]
-}
-
 // Outputs
-output containerAppFqdn string = containerAppWithCertificateModule.outputs.containerAppFqdn
-output containerAppName string = containerAppWithCertificateModule.outputs.containerAppName
+output containerAppFqdn string = containerAppModule.outputs.containerAppFqdn
+output containerAppName string = containerAppModule.outputs.containerAppName
 output customDomainUrl string = 'https://${domainName}'
-output managedCertificateId string = certificateModule.outputs.certificateId
 output frontDoorEndpointHostName string = frontDoorModule.outputs.frontDoorEndpointHostName
 output frontDoorProfileName string = frontDoorModule.outputs.frontDoorProfileName
