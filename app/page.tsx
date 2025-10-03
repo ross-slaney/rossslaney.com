@@ -60,7 +60,6 @@ export default function Home() {
             <p className="text-sm font-semibold uppercase tracking-[0.35em] text-muted-foreground">
               Ross Slaney
             </p>
-            <p className="text-sm text-muted-foreground">📍 Santa Cruz, CA</p>
             <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
               Full Stack Software Engineer
             </h1>
