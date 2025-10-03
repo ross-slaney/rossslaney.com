@@ -1,14 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../hooks/use-theme-cookie";
 
 export default function ThemeSelector() {
   const [mounted, setMounted] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, []);
 
   if (!mounted) {
@@ -46,15 +65,22 @@ export default function ThemeSelector() {
   const currentTheme = themes.find((t) => t.value === theme) || themes[0];
 
   return (
-    <div className="relative group">
+    <div ref={dropdownRef} className="relative group">
       {/* Current Theme Button */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-lg cursor-pointer hover:bg-muted/80 transition-colors">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-3 py-2 bg-muted rounded-lg cursor-pointer hover:bg-muted/80 transition-colors"
+        aria-label="Select theme"
+        aria-expanded={isOpen}
+      >
         <span className="text-xs">{currentTheme.icon}</span>
         <span className="text-sm font-medium text-foreground hidden sm:inline">
           {currentTheme.label}
         </span>
         <svg
-          className="w-4 h-4 text-muted-foreground transition-transform group-hover:rotate-180"
+          className={`w-4 h-4 text-muted-foreground transition-transform ${
+            isOpen ? "rotate-180" : "group-hover:rotate-180"
+          }`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -66,15 +92,24 @@ export default function ThemeSelector() {
             d="M19 9l-7 7-7-7"
           />
         </svg>
-      </div>
+      </button>
 
       {/* Dropdown Menu */}
-      <div className="absolute right-0 bottom-full mb-2 w-40 bg-background border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+      <div
+        className={`absolute right-0 bottom-full mb-2 w-40 bg-background border border-border rounded-lg shadow-lg transition-all duration-200 z-50 ${
+          isOpen
+            ? "opacity-100 visible"
+            : "opacity-0 invisible group-hover:opacity-100 group-hover:visible"
+        }`}
+      >
         <div className="py-1">
           {themes.map((themeOption) => (
             <button
               key={themeOption.value}
-              onClick={() => setTheme(themeOption.value)}
+              onClick={() => {
+                setTheme(themeOption.value);
+                setIsOpen(false);
+              }}
               className={`
                 w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-muted transition-colors text-left
                 ${
