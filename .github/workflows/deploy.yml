@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_RESOURCE_GROUP: FOUNDATION
-  AZURE_LOCATION: centralus
-  PROJECT_PREFIX: ross
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+  PROJECT_PREFIX: ${{ vars.NAME_PREFIX }}
 
 jobs:
   deploy:
