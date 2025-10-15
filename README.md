@@ -27,3 +27,5 @@ The site will be available at [http://localhost:3001](http://localhost:3001).
 - [Next.js 15 App Router](https://nextjs.org/) with Turbopack
 - [Tailwind CSS](https://tailwindcss.com/) for styling
 - [TypeScript](https://www.typescriptlang.org/) for type safety
+
+--> test deployment
