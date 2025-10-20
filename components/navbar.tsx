@@ -3,7 +3,6 @@ import MobileMenu from "./mobile-menu";
 
 export default function Navbar() {
   const navLinks = [
-    { href: "/about", label: "About" },
     { href: "/blog", label: "Blog" },
     { href: "/contact", label: "Contact" },
   ];
