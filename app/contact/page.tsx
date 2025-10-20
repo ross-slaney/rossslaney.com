@@ -17,8 +17,8 @@ export default function ContactPage() {
             Get in Touch
           </h1>
           <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
-            Have a project in mind or want to discuss opportunities? I'd love to
-            hear from you.
+            Have a project in mind or want to discuss opportunities? I&apos;d
+            love to hear from you.
           </p>
         </header>
 

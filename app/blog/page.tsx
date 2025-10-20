@@ -4,6 +4,9 @@ import { BlogSearch } from "@/components/blog-search";
 import { BlogCategories } from "@/components/blog-categories";
 import { BlogPagination } from "@/components/blog-pagination";
 
+// Force dynamic rendering (SSR) for blog directory
+export const dynamic = "force-dynamic";
+
 interface BlogPageProps {
   searchParams: Promise<{
     q?: string;

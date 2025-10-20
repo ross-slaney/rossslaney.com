@@ -7,7 +7,11 @@ import {
   getAvailableLanguages,
 } from "@/lib/blog";
 import { MDXRemote } from "next-mdx-remote/rsc";
-import { useMDXComponents } from "@/mdx-components";
+import { blogMDXComponents } from "@/mdx-components";
+
+// Force dynamic rendering (SSR) for all blog posts
+export const dynamic = "force-dynamic";
+export const dynamicParams = true;
 
 interface BlogPostPageProps {
   params: Promise<{
@@ -41,8 +45,6 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
       day: "numeric",
     }
   );
-
-  const components = useMDXComponents({});
 
   return (
     <div className="flex flex-col px-4 py-16 sm:px-6 lg:px-8">
@@ -117,7 +119,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
 
         {/* Content */}
         <div className="prose prose-slate max-w-none">
-          <MDXRemote source={post.content} components={components} />
+          <MDXRemote source={post.content} components={blogMDXComponents} />
         </div>
 
         {/* Footer */}

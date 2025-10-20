@@ -97,6 +97,7 @@ export function getAllBlogPosts(lang: string = "en"): BlogPostMetadata[] {
     if (languages.includes(lang)) {
       const post = getBlogPost(slug, lang);
       if (post) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { content, ...metadata } = post;
         posts.push(metadata);
       }

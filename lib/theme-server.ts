@@ -13,7 +13,11 @@ export async function getServerTheme(): Promise<Theme> {
       return theme;
     }
   } catch (error) {
-    console.warn("Failed to read theme from cookies:", error);
+    // Silently fail during build - this is expected
+    // Only log in development
+    if (process.env.NODE_ENV === "development") {
+      console.warn("Failed to read theme from cookies:", error);
+    }
   }
 
   return "system"; // Default theme
