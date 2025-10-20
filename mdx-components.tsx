@@ -1,7 +1,13 @@
 import type { MDXComponents } from "mdx/types";
+import { DemoGraph } from "@/components/mdx/demo-graph";
+import { Callout } from "@/components/mdx/callout";
 
 // Blog MDX components for styling
 export const blogMDXComponents: MDXComponents = {
+  // Custom interactive components
+  DemoGraph,
+  Callout,
+  // Standard HTML elements with styling
   h1: ({ children }) => (
     <h1 className="text-4xl font-bold mb-6 text-foreground">{children}</h1>
   ),
