@@ -13,7 +13,7 @@ npm install
 npm run dev
 ```
 
-The site will be available at [http://localhost:3001](http://localhost:3001).
+The site will be available at [http://localhost:3010](http://localhost:3010).
 
 ## Available Scripts
 
@@ -27,6 +27,3 @@ The site will be available at [http://localhost:3001](http://localhost:3001).
 - [Next.js 15 App Router](https://nextjs.org/) with Turbopack
 - [Tailwind CSS](https://tailwindcss.com/) for styling
 - [TypeScript](https://www.typescriptlang.org/) for type safety
-
---> test deployment
---> test deployment 2
