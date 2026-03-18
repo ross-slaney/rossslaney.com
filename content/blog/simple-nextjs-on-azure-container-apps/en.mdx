@@ -1,0 +1,898 @@
+---
+title: "Host a Next.js App on Azure with Bicep and GitHub Actions"
+publishedAt: "2026-03-18"
+updatedAt: "2026-03-18"
+author: "Ross Slaney"
+authorPhoto: "https://files.rossslaney.com/assets/ross.png"
+previewImage: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=1200&h=630&fit=crop"
+category: "Azure"
+excerpt: "An exact reference for hosting a Next.js app on Azure Container Apps using Bicep for infrastructure and GitHub Actions for deployment, based on the real SqlOS marketing site."
+---
+
+# Host a Next.js App on Azure with Bicep and GitHub Actions
+
+This guide is based on a real deployment. The reference implementation is the SqlOS marketing site in the [SqlOS repository](https://github.com/ross-slaney/sqlos), with the app in [`web/`](https://github.com/ross-slaney/sqlos/tree/main/web), the infrastructure in [`infra/`](https://github.com/ross-slaney/sqlos/tree/main/infra), and the deployment workflow in [`.github/workflows/deploy-web.yml`](https://github.com/ross-slaney/sqlos/blob/main/.github/workflows/deploy-web.yml).
+
+If your starting point is "I already have a Next.js app and I want to host it on Azure", this is the pattern I would recommend. Yes, you can absolutely run the app on Azure Container Apps. But if you stop there, you still have the bigger problems unsolved:
+
+- where the container image lives
+- how the app authenticates to pull that image
+- how the infrastructure is recreated deterministically
+- how deployment becomes repeatable across environments and future apps
+- how GitHub Actions fits into the whole thing
+
+This article is meant to be an exact technical reference for that full shape.
+
+<ReferenceToc
+  items={[
+    { href: "#what-you-are-building", label: "What you are building" },
+    {
+      href: "#before-you-start",
+      label: "Before you start",
+    },
+    {
+      href: "#why-these-azure-resources-exist",
+      label: "Why these Azure resources exist",
+    },
+    { href: "#project-structure", label: "Exact project structure" },
+    { href: "#dockerfile", label: "The Next.js Dockerfile" },
+    { href: "#foundation-layer", label: "The foundation Bicep layer" },
+    { href: "#applications-layer", label: "The applications Bicep layer" },
+    { href: "#container-app-module", label: "The Container App module" },
+    { href: "#dns-module", label: "The DNS module" },
+    {
+      href: "#github-actions-workflow",
+      label: "The GitHub Actions workflow",
+    },
+    {
+      href: "#github-variables-and-secrets",
+      label: "GitHub variables and secrets",
+    },
+    { href: "#deployment-flow", label: "How the deployment flow works" },
+    {
+      href: "#why-the-two-layer-shape-matters",
+      label: "Why the two-layer shape matters",
+    },
+    {
+      href: "#adapting-this-pattern-to-another-app",
+      label: "How to adapt this pattern to another app",
+    },
+  ]}
+/>
+
+<ArchitectureFlow title="The Azure delivery shape for a Next.js app" />
+
+<Callout type="info" title="Who This Guide Is For">
+  This is written for developers who already know how to build a Next.js app,
+  but need a sensible Azure deployment shape with Infrastructure as Code,
+  private container images, managed identity, DNS, and GitHub-based delivery.
+</Callout>
+
+<h2 id="what-you-are-building">What you are building</h2>
+
+The target architecture is straightforward:
+
+1. Your Next.js app is packaged as a Docker image.
+2. GitHub Actions builds that image in Azure Container Registry.
+3. Bicep deploys the Azure platform resources first.
+4. Bicep then deploys the Container App using the image GitHub just built.
+5. Azure DNS is updated and the custom domain is bound to the app.
+
+For the real SqlOS use case, this pattern powers the public marketing site in the [SqlOS repo](https://github.com/ross-slaney/sqlos). The app-specific pieces live in [`web/`](https://github.com/ross-slaney/sqlos/tree/main/web), while the reusable Azure layout lives in [`infra/`](https://github.com/ross-slaney/sqlos/tree/main/infra).
+
+<h2 id="before-you-start">Before you start</h2>
+
+You need three things in place before this pattern works:
+
+1. A Next.js app that can run in a container.
+2. An Azure subscription.
+3. An existing Azure DNS zone if you want Bicep to manage your custom domain records.
+
+For the SqlOS marketing site, the DNS zone already exists as `sqlos.dev`, and the workflow updates that zone during deploy. That means the app resource group and the DNS resource group are related, but they are not the same thing.
+
+The simplest way to create a service principal for GitHub Actions is:
+
+```bash
+az login
+az account set --subscription "<subscription-name-or-id>"
+
+az ad sp create-for-rbac \
+  --name "github-nextjs-azure-deploy" \
+  --role Contributor \
+  --scopes "/subscriptions/<subscription-id>" \
+  --query "{clientId:appId, clientSecret:password, tenantId:tenant}" \
+  -o json
+```
+
+That is the easiest way to get started. In a tighter production setup you can scope permissions down to the app resource group and DNS resource group instead.
+
+<h2 id="why-these-azure-resources-exist">Why these Azure resources exist</h2>
+
+One of the main reasons Azure feels heavy to app developers is that the platform does not hide these pieces from you. The upside is that once you understand what each one is doing, the deployment becomes very predictable.
+
+| Azure resource                   | Why it exists in this setup                                                                 | What it does in practice                                                                               |
+| -------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Azure Container Registry         | Your app is deployed as a container image. That image needs a private home.                 | GitHub Actions builds the image with `az acr build`, tags it, and the Container App pulls it from ACR. |
+| User-assigned managed identity   | The running app needs a secure way to pull from ACR without hardcoded registry credentials. | The Container App uses this identity, and Bicep grants it the `AcrPull` role on the registry.          |
+| Azure Container Apps environment | This is the shared hosting environment for one or more Container Apps.                      | It provides the environment boundary, logging integration, and the public static IP used for apex DNS. |
+| Azure Container App              | This is the actual running Next.js workload.                                                | It hosts the containerized app, exposes port `3000`, and scales between configured replica counts.     |
+| Log Analytics workspace          | You need a place for app and platform logs to land.                                         | The Container Apps environment is configured to send logs here.                                        |
+| Azure DNS zone                   | If you want a custom domain, DNS records must be created and validated.                     | Bicep creates the required `A`, `CNAME`, and `TXT` records and the workflow binds the domains.         |
+
+<Callout type="success" title="Why the Registry Matters">
+  If your mental model is "I have a Next.js app, why do I suddenly need a
+  registry?", the answer is that Azure Container Apps does not deploy directly
+  from your source tree. It runs container images. The registry is the source of
+  truth for those deployable artifacts.
+</Callout>
+
+<h2 id="project-structure">Exact project structure</h2>
+
+This is the minimal shape that matters for the deployment pattern:
+
+```text
+.
+├── .github
+│   └── workflows
+│       └── deploy-web.yml
+├── infra
+│   ├── layers
+│   │   ├── applications.bicep
+│   │   └── foundation.bicep
+│   └── modules
+│       ├── container-app-uami.bicep
+│       └── dns-config.bicep
+└── web
+    └── Dockerfile
+```
+
+In the real SqlOS repo those files are:
+
+- [`web/Dockerfile`](https://github.com/ross-slaney/sqlos/blob/main/web/Dockerfile)
+- [`infra/layers/foundation.bicep`](https://github.com/ross-slaney/sqlos/blob/main/infra/layers/foundation.bicep)
+- [`infra/layers/applications.bicep`](https://github.com/ross-slaney/sqlos/blob/main/infra/layers/applications.bicep)
+- [`infra/modules/container-app-uami.bicep`](https://github.com/ross-slaney/sqlos/blob/main/infra/modules/container-app-uami.bicep)
+- [`infra/modules/dns-config.bicep`](https://github.com/ross-slaney/sqlos/blob/main/infra/modules/dns-config.bicep)
+- [`.github/workflows/deploy-web.yml`](https://github.com/ross-slaney/sqlos/blob/main/.github/workflows/deploy-web.yml)
+
+<h2 id="dockerfile">The Next.js Dockerfile</h2>
+
+This is the exact Dockerfile used by the SqlOS marketing site:
+
+```dockerfile
+# Multi-stage Dockerfile for the SqlOS marketing site.
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=builder /app ./
+COPY --from=deps /app/node_modules ./node_modules
+EXPOSE 3000
+CMD ["npm", "run", "start"]
+```
+
+This is intentionally boring, which is a good thing. A reference deployment should not depend on clever container tricks.
+
+<h2 id="foundation-layer">The foundation Bicep layer</h2>
+
+The `foundation` layer creates the reusable Azure primitives. This is the part I would keep stable across multiple apps:
+
+```bicep
+targetScope = 'resourceGroup'
+
+@description('Location for all resources.')
+param location string = resourceGroup().location
+
+@description('Project prefix for naming.')
+param projectPrefix string
+
+var compactPrefix = toLower(replace(projectPrefix, '-', ''))
+var acrName = take('${compactPrefix}prodacr', 50)
+var containerAppEnvName = '${projectPrefix}-prod-env'
+var logAnalyticsName = '${projectPrefix}-prod-logs'
+var uamiName = '${projectPrefix}-prod-uami'
+
+resource uami 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: uamiName
+  location: location
+}
+
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: logAnalyticsName
+  location: location
+  properties: {
+    sku: {
+      name: 'PerGB2018'
+    }
+    retentionInDays: 30
+  }
+}
+
+resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+  name: acrName
+  location: location
+  sku: {
+    name: 'Basic'
+  }
+  properties: {
+    adminUserEnabled: false
+  }
+}
+
+resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(acr.id, uami.id, 'AcrPull')
+  scope: acr
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+    )
+    principalId: uami.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource containerAppEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
+  name: containerAppEnvName
+  location: location
+  properties: {
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: logAnalytics.properties.customerId
+        sharedKey: logAnalytics.listKeys().primarySharedKey
+      }
+    }
+  }
+}
+
+output acrLoginServer string = acr.properties.loginServer
+output acrName string = acr.name
+output containerAppsEnvId string = containerAppEnvironment.id
+output containerAppsEnvName string = containerAppEnvironment.name
+output containerAppsEnvStaticIp string = containerAppEnvironment.properties.staticIp
+output resourceGroupName string = resourceGroup().name
+output uamiId string = uami.id
+```
+
+This layer is responsible for answering these platform questions once:
+
+- Where will images live?
+- Where will logs go?
+- Which identity can pull private images?
+- Which Container Apps environment will host the app?
+
+That is why this layer should exist independently of any individual app release.
+
+<h2 id="applications-layer">The applications Bicep layer</h2>
+
+The `applications` layer is where the running web app gets deployed. Notice that it does not rebuild the platform. It takes the outputs from `foundation` and wires the app into them:
+
+```bicep
+targetScope = 'resourceGroup'
+
+@description('Location for all resources.')
+param location string = resourceGroup().location
+
+@description('Project prefix for naming.')
+param projectPrefix string
+
+@description('Container Apps environment ID.')
+param containerAppsEnvId string
+
+@description('Container Apps environment static public IP.')
+param containerAppsEnvStaticIp string
+
+@description('ACR login server.')
+param acrLoginServer string
+
+@description('Container image reference.')
+param containerImage string
+
+@description('User-assigned managed identity resource ID.')
+param uamiId string
+
+@description('Resource group that contains the Azure DNS zone.')
+param dnsResourceGroup string
+
+@description('Azure DNS zone name.')
+param dnsZoneName string
+
+var containerAppName = '${projectPrefix}-prod-web'
+
+module containerAppModule '../modules/container-app-uami.bicep' = {
+  name: 'containerApp'
+  params: {
+    containerAppName: containerAppName
+    location: location
+    managedEnvironmentId: containerAppsEnvId
+    acrLoginServer: acrLoginServer
+    uamiId: uamiId
+    containerImage: containerImage
+  }
+}
+
+module dnsModule '../modules/dns-config.bicep' = {
+  name: 'dnsConfig'
+  scope: resourceGroup(subscription().subscriptionId, dnsResourceGroup)
+  params: {
+    dnsZoneName: dnsZoneName
+    apexIPv4Address: containerAppsEnvStaticIp
+    containerAppFqdn: containerAppModule.outputs.containerAppFqdn
+    customDomainVerificationId: containerAppModule.outputs.customDomainVerificationId
+  }
+}
+
+output containerAppFqdn string = containerAppModule.outputs.containerAppFqdn
+output containerAppName string = containerAppModule.outputs.containerAppName
+output customDomainVerificationId string = containerAppModule.outputs.customDomainVerificationId
+```
+
+This split is important. It means the deployable app is just one layer in a bigger system instead of a script that has to know how to rebuild your entire Azure world every time.
+
+<h2 id="container-app-module">The Container App module</h2>
+
+This is the exact module that defines the running Next.js workload:
+
+```bicep
+targetScope = 'resourceGroup'
+
+@description('Container App name.')
+param containerAppName string
+
+@description('Location for the resources.')
+param location string
+
+@description('Managed environment resource ID.')
+param managedEnvironmentId string
+
+@description('Azure Container Registry login server.')
+param acrLoginServer string
+
+@description('User-assigned managed identity resource ID.')
+param uamiId string
+
+@description('Container image reference.')
+param containerImage string
+
+resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
+  name: containerAppName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${uamiId}': {}
+    }
+  }
+  properties: {
+    managedEnvironmentId: managedEnvironmentId
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: true
+        targetPort: 3000
+        allowInsecure: false
+        traffic: [
+          {
+            weight: 100
+            latestRevision: true
+          }
+        ]
+      }
+      registries: [
+        {
+          server: acrLoginServer
+          identity: uamiId
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'web'
+          image: containerImage
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'NODE_ENV'
+              value: 'production'
+            }
+            {
+              name: 'PORT'
+              value: '3000'
+            }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 3
+        rules: [
+          {
+            name: 'http-scaling'
+            http: {
+              metadata: {
+                concurrentRequests: '10'
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+
+output containerAppFqdn string = containerApp.properties.configuration.ingress.fqdn
+output customDomainVerificationId string = containerApp.properties.customDomainVerificationId
+output containerAppName string = containerApp.name
+```
+
+The important thing to notice here is that the app does not need registry secrets. It uses the managed identity from the foundation layer.
+
+<h2 id="dns-module">The DNS module</h2>
+
+This module updates the existing DNS zone and creates the records needed for custom domain verification and routing:
+
+```bicep
+targetScope = 'resourceGroup'
+
+@description('Azure DNS zone name.')
+param dnsZoneName string
+
+@description('Static IPv4 address for the apex A record.')
+param apexIPv4Address string
+
+@description('Container App FQDN used by the www CNAME record.')
+param containerAppFqdn string
+
+@description('Container App custom domain verification ID.')
+param customDomainVerificationId string
+
+@description('TTL for DNS records.')
+param ttl int = 300
+
+resource dnsZone 'Microsoft.Network/dnsZones@2023-07-01-preview' existing = {
+  name: dnsZoneName
+}
+
+resource apexRecord 'Microsoft.Network/dnsZones/A@2023-07-01-preview' = {
+  parent: dnsZone
+  name: '@'
+  properties: {
+    TTL: ttl
+    ARecords: [
+      {
+        ipv4Address: apexIPv4Address
+      }
+    ]
+  }
+}
+
+resource apexVerificationRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-preview' = {
+  parent: dnsZone
+  name: 'asuid'
+  properties: {
+    TTL: ttl
+    TXTRecords: [
+      {
+        value: [
+          customDomainVerificationId
+        ]
+      }
+    ]
+  }
+}
+
+resource wwwRecord 'Microsoft.Network/dnsZones/CNAME@2023-07-01-preview' = {
+  parent: dnsZone
+  name: 'www'
+  properties: {
+    TTL: ttl
+    CNAMERecord: {
+      cname: containerAppFqdn
+    }
+  }
+}
+
+resource wwwVerificationRecord 'Microsoft.Network/dnsZones/TXT@2023-07-01-preview' = {
+  parent: dnsZone
+  name: 'asuid.www'
+  properties: {
+    TTL: ttl
+    TXTRecords: [
+      {
+        value: [
+          customDomainVerificationId
+        ]
+      }
+    ]
+  }
+}
+
+output apexRecordCreated bool = !empty(apexRecord.id)
+output wwwRecordCreated bool = !empty(wwwRecord.id)
+```
+
+For the SqlOS marketing site, this module updates the existing `sqlos.dev` zone. That is why the workflow needs both an app resource group and a DNS resource group.
+
+<h2 id="github-actions-workflow">The GitHub Actions workflow</h2>
+
+This is the exact workflow that ties the whole deployment together:
+
+```yaml
+name: Deploy Web to Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+
+env:
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+  AZURE_DNS_RESOURCE_GROUP: ${{ vars.AZURE_DNS_RESOURCE_GROUP || 'foundation' }}
+  AZURE_DNS_ZONE_NAME: ${{ vars.AZURE_DNS_ZONE_NAME || 'sqlos.dev' }}
+  AZURE_NAME_PREFIX: ${{ vars.AZURE_NAME_PREFIX }}
+  AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  deploy:
+    name: Deploy Web
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate Azure login inputs
+        env:
+          INPUT_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          INPUT_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          INPUT_AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          INPUT_AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+
+          [[ -n "${INPUT_AZURE_CLIENT_ID:-}" ]] || missing+=("AZURE_CLIENT_ID (repository variable)")
+          [[ -n "${INPUT_AZURE_TENANT_ID:-}" ]] || missing+=("AZURE_TENANT_ID (repository variable)")
+          [[ -n "${INPUT_AZURE_SUBSCRIPTION_ID:-}" ]] || missing+=("AZURE_SUBSCRIPTION_ID (repository variable)")
+          [[ -n "${INPUT_AZURE_CLIENT_SECRET:-}" ]] || missing+=("AZURE_CLIENT_SECRET (repository secret)")
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing Azure login values:"
+            printf ' - %s\n' "${missing[@]}"
+            echo ""
+            echo "Add repository variables/secrets at:"
+            echo "Settings -> Secrets and variables -> Actions"
+            echo ""
+            echo "This workflow does not read GitHub Environment-scoped values."
+            exit 1
+          fi
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: '{"clientId":"${{ vars.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ vars.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ vars.AZURE_TENANT_ID }}"}'
+
+      - name: Install Azure Container Apps extension
+        run: |
+          az config set extension.use_dynamic_install=yes_without_prompt
+          az extension add --name containerapp --upgrade --yes
+
+      - name: Preflight checks
+        run: |
+          set -euo pipefail
+
+          az group create \
+            --name "$AZURE_RESOURCE_GROUP" \
+            --location "$AZURE_LOCATION" \
+            --output none
+
+          az network dns zone show \
+            --resource-group "$AZURE_DNS_RESOURCE_GROUP" \
+            --name "$AZURE_DNS_ZONE_NAME" \
+            --output none
+
+          apex_conflicts="$(az network dns record-set list \
+            --resource-group "$AZURE_DNS_RESOURCE_GROUP" \
+            --zone-name "$AZURE_DNS_ZONE_NAME" \
+            --query "[?name=='@' && type=='Microsoft.Network/dnsZones/CNAME'].type" \
+            --output tsv)"
+          if [[ -n "$apex_conflicts" ]]; then
+            echo "The apex record set already contains a CNAME, which blocks the required A record:"
+            echo "$apex_conflicts"
+            exit 1
+          fi
+
+          www_conflicts="$(az network dns record-set list \
+            --resource-group "$AZURE_DNS_RESOURCE_GROUP" \
+            --zone-name "$AZURE_DNS_ZONE_NAME" \
+            --query "[?name=='www' && type!='Microsoft.Network/dnsZones/CNAME'].type" \
+            --output tsv)"
+          if [[ -n "$www_conflicts" ]]; then
+            echo "The www label already contains non-CNAME record types, which block the required CNAME:"
+            echo "$www_conflicts"
+            exit 1
+          fi
+
+      - name: Deploy foundation resources
+        run: |
+          set -euo pipefail
+
+          az deployment group create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name foundation \
+            --template-file infra/layers/foundation.bicep \
+            --parameters \
+              location="$AZURE_LOCATION" \
+              projectPrefix="$AZURE_NAME_PREFIX" \
+            --output none
+
+          ACR_NAME="$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name foundation --query "properties.outputs.acrName.value" --output tsv)"
+          ACR_LOGIN_SERVER="$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name foundation --query "properties.outputs.acrLoginServer.value" --output tsv)"
+          CONTAINER_APPS_ENV_ID="$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name foundation --query "properties.outputs.containerAppsEnvId.value" --output tsv)"
+          CONTAINER_APPS_ENV_NAME="$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name foundation --query "properties.outputs.containerAppsEnvName.value" --output tsv)"
+          CONTAINER_APPS_ENV_STATIC_IP="$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name foundation --query "properties.outputs.containerAppsEnvStaticIp.value" --output tsv)"
+          UAMI_ID="$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name foundation --query "properties.outputs.uamiId.value" --output tsv)"
+
+          {
+            echo "ACR_NAME=$ACR_NAME"
+            echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER"
+            echo "CONTAINER_APPS_ENV_ID=$CONTAINER_APPS_ENV_ID"
+            echo "CONTAINER_APPS_ENV_NAME=$CONTAINER_APPS_ENV_NAME"
+            echo "CONTAINER_APPS_ENV_STATIC_IP=$CONTAINER_APPS_ENV_STATIC_IP"
+            echo "UAMI_ID=$UAMI_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Build and push web image
+        run: |
+          set -euo pipefail
+
+          IMAGE_TAG="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+
+          az acr build \
+            --registry "$ACR_NAME" \
+            --image sqlos-web:"$IMAGE_TAG" \
+            --image sqlos-web:latest \
+            --file web/Dockerfile \
+            ./web
+
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+
+      - name: Deploy container app and DNS records
+        run: |
+          set -euo pipefail
+
+          APP_IMAGE="${ACR_LOGIN_SERVER}/sqlos-web:${IMAGE_TAG}"
+
+          az deployment group create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name applications \
+            --template-file infra/layers/applications.bicep \
+            --parameters \
+              location="$AZURE_LOCATION" \
+              projectPrefix="$AZURE_NAME_PREFIX" \
+              containerAppsEnvId="$CONTAINER_APPS_ENV_ID" \
+              containerAppsEnvStaticIp="$CONTAINER_APPS_ENV_STATIC_IP" \
+              acrLoginServer="$ACR_LOGIN_SERVER" \
+              containerImage="$APP_IMAGE" \
+              uamiId="$UAMI_ID" \
+              dnsResourceGroup="$AZURE_DNS_RESOURCE_GROUP" \
+              dnsZoneName="$AZURE_DNS_ZONE_NAME" \
+            --output none
+
+          CONTAINER_APP_NAME="$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name applications --query "properties.outputs.containerAppName.value" --output tsv)"
+          CONTAINER_APP_FQDN="$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name applications --query "properties.outputs.containerAppFqdn.value" --output tsv)"
+          CUSTOM_DOMAIN_VERIFICATION_ID="$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name applications --query "properties.outputs.customDomainVerificationId.value" --output tsv)"
+
+          {
+            echo "CONTAINER_APP_NAME=$CONTAINER_APP_NAME"
+            echo "CONTAINER_APP_FQDN=$CONTAINER_APP_FQDN"
+            echo "CUSTOM_DOMAIN_VERIFICATION_ID=$CUSTOM_DOMAIN_VERIFICATION_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Wait for public DNS propagation
+        run: |
+          set -euo pipefail
+
+          expected_ip="$CONTAINER_APPS_ENV_STATIC_IP"
+          expected_fqdn="$CONTAINER_APP_FQDN"
+          expected_verification_id="$CUSTOM_DOMAIN_VERIFICATION_ID"
+          www_host="www.${AZURE_DNS_ZONE_NAME}"
+
+          for attempt in $(seq 1 30); do
+            apex_ip="$(dig +short @"1.1.1.1" "$AZURE_DNS_ZONE_NAME" A | tail -n1)"
+            apex_txt="$(dig +short @"1.1.1.1" "asuid.${AZURE_DNS_ZONE_NAME}" TXT | tr -d '"' | tail -n1)"
+            www_cname="$(dig +short @"1.1.1.1" "$www_host" CNAME | sed 's/\.$//' | tail -n1)"
+            www_txt="$(dig +short @"1.1.1.1" "asuid.www.${AZURE_DNS_ZONE_NAME}" TXT | tr -d '"' | tail -n1)"
+
+            if [[ "$apex_ip" == "$expected_ip" && "$apex_txt" == "$expected_verification_id" && "$www_cname" == "$expected_fqdn" && "$www_txt" == "$expected_verification_id" ]]; then
+              exit 0
+            fi
+
+            echo "Attempt $attempt/30 waiting for DNS propagation"
+            echo "Apex IP: expected '$expected_ip', got '${apex_ip:-<empty>}'"
+            echo "Apex TXT: expected '$expected_verification_id', got '${apex_txt:-<empty>}'"
+            echo "WWW CNAME: expected '$expected_fqdn', got '${www_cname:-<empty>}'"
+            echo "WWW TXT: expected '$expected_verification_id', got '${www_txt:-<empty>}'"
+            sleep 20
+          done
+
+          echo "DNS propagation did not converge in time."
+          exit 1
+
+      - name: Bind custom domains
+        run: |
+          set -euo pipefail
+
+          ensure_hostname_added() {
+            local hostname="$1"
+            local existing_count
+
+            existing_count="$(az containerapp hostname list \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --query "[?name=='${hostname}'] | length(@)" \
+              --output tsv)"
+
+            if [[ "$existing_count" == "0" ]]; then
+              az containerapp hostname add \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --hostname "$hostname" \
+                --output none
+            fi
+          }
+
+          ensure_hostname_added "$AZURE_DNS_ZONE_NAME"
+          az containerapp hostname bind \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --environment "$CONTAINER_APPS_ENV_ID" \
+            --hostname "$AZURE_DNS_ZONE_NAME" \
+            --validation-method HTTP \
+            --output none
+
+          ensure_hostname_added "www.${AZURE_DNS_ZONE_NAME}"
+          az containerapp hostname bind \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --environment "$CONTAINER_APPS_ENV_ID" \
+            --hostname "www.${AZURE_DNS_ZONE_NAME}" \
+            --validation-method CNAME \
+            --output none
+
+      - name: Deployment summary
+        run: |
+          echo "Deployment completed successfully."
+          echo "Primary URL: https://${AZURE_DNS_ZONE_NAME}"
+          echo "WWW URL: https://www.${AZURE_DNS_ZONE_NAME}"
+          echo "Resource group: ${AZURE_RESOURCE_GROUP}"
+          echo "DNS resource group: ${AZURE_DNS_RESOURCE_GROUP}"
+          echo "Container app: ${CONTAINER_APP_NAME}"
+          echo "Container app FQDN: ${CONTAINER_APP_FQDN}"
+          echo "Container Apps environment: ${CONTAINER_APPS_ENV_NAME}"
+          echo "Container Apps environment IP: ${CONTAINER_APPS_ENV_STATIC_IP}"
+          echo "ACR: ${ACR_LOGIN_SERVER}"
+```
+
+This workflow is the core of the pattern. It is not just "build and deploy". It is the handoff point between source code, platform state, deployable images, DNS, and domain binding.
+
+<h2 id="github-variables-and-secrets">GitHub variables and secrets</h2>
+
+These are the values the workflow expects:
+
+| Name                       | Type     | Example                      | Why it exists                                                    |
+| -------------------------- | -------- | ---------------------------- | ---------------------------------------------------------------- |
+| `AZURE_LOCATION`           | Variable | `eastus2`                    | Azure region for the app resource group and deployed resources.  |
+| `AZURE_RESOURCE_GROUP`     | Variable | `rg-sqlos-web-prod`          | Resource group that will hold the deployed app infrastructure.   |
+| `AZURE_DNS_RESOURCE_GROUP` | Variable | `foundation`                 | Resource group that already contains the Azure DNS zone.         |
+| `AZURE_DNS_ZONE_NAME`      | Variable | `sqlos.dev`                  | DNS zone to update during deployment.                            |
+| `AZURE_NAME_PREFIX`        | Variable | `sqlos`                      | Naming seed used by Bicep to generate Azure resource names.      |
+| `AZURE_CLIENT_ID`          | Variable | `<service-principal-app-id>` | Client ID for the Azure service principal GitHub uses to log in. |
+| `AZURE_TENANT_ID`          | Variable | `<tenant-id>`                | Azure Entra tenant ID.                                           |
+| `AZURE_SUBSCRIPTION_ID`    | Variable | `<subscription-id>`          | Azure subscription ID.                                           |
+| `AZURE_CLIENT_SECRET`      | Secret   | `<service-principal-secret>` | Secret for the Azure service principal.                          |
+
+For the real SqlOS marketing site, the two most concrete values are:
+
+```text
+AZURE_DNS_RESOURCE_GROUP=foundation
+AZURE_DNS_ZONE_NAME=sqlos.dev
+```
+
+<h2 id="deployment-flow">How the deployment flow works</h2>
+
+This is the exact order of operations:
+
+1. GitHub validates that the Azure login values are present.
+2. GitHub logs into Azure using the configured service principal.
+3. The workflow ensures the application resource group exists and confirms the DNS zone exists.
+4. The `foundation` Bicep layer deploys the registry, managed identity, log workspace, and Container Apps environment.
+5. The workflow reads the outputs from `foundation` and exports them into `GITHUB_ENV`.
+6. GitHub builds the Next.js image in ACR with `az acr build`.
+7. The `applications` layer deploys the Container App and DNS records using the values from the foundation deployment.
+8. The workflow waits for public DNS propagation.
+9. The workflow binds the apex and `www` hostnames to the Container App.
+
+That is the part that makes this pattern professional rather than improvised. The workflow has a deterministic contract with the infrastructure. It does not rely on hidden manual steps after the first setup.
+
+<h2 id="why-the-two-layer-shape-matters">Why the two-layer shape matters</h2>
+
+The split between `foundation` and `applications` is what makes this reusable.
+
+The `foundation` layer contains the relatively stable Azure platform concerns:
+
+- registry
+- identity
+- log destination
+- Container Apps environment
+
+The `applications` layer contains the app release concerns:
+
+- which image to deploy
+- which domain to point at it
+- which Container App should run it
+
+That split gives you a few concrete benefits:
+
+- You can reuse the same shape for multiple apps.
+- You can redeploy app code without redefining your entire platform design.
+- The Bicep outputs become an explicit contract between layers.
+- The workflow stays understandable because it has a clean handoff point.
+
+<Callout type="success" title="This Is the Reusable Pattern">
+  If you only take one thing from this guide, take this: the valuable part is
+  not just "Next.js on Azure". The valuable part is the repeatable contract
+  between your app, your infrastructure, and your deployment system.
+</Callout>
+
+<h2 id="adapting-this-pattern-to-another-app">
+  How to adapt this pattern to another app
+</h2>
+
+If you want to reuse this structure for your own app, the adaptation points are small:
+
+1. Replace `web/` with your own app folder.
+2. Update the image name in the workflow.
+3. Adjust the `containerAppName` naming convention.
+4. Update DNS zone inputs to match your domain.
+5. Change CPU, memory, scaling, and environment variables in `container-app-uami.bicep`.
+
+What should stay the same in most cases:
+
+- the existence of a private registry
+- the managed identity + `AcrPull` pattern
+- the split between foundation and applications
+- the use of Bicep outputs as the contract between deployment phases
+- the GitHub Actions orchestration pattern
+
+If you want the exact source files, start here in the real repo:
+
+- [SqlOS repository](https://github.com/ross-slaney/sqlos)
+- [`web/Dockerfile`](https://github.com/ross-slaney/sqlos/blob/main/web/Dockerfile)
+- [`infra/layers/foundation.bicep`](https://github.com/ross-slaney/sqlos/blob/main/infra/layers/foundation.bicep)
+- [`infra/layers/applications.bicep`](https://github.com/ross-slaney/sqlos/blob/main/infra/layers/applications.bicep)
+- [`infra/modules/container-app-uami.bicep`](https://github.com/ross-slaney/sqlos/blob/main/infra/modules/container-app-uami.bicep)
+- [`infra/modules/dns-config.bicep`](https://github.com/ross-slaney/sqlos/blob/main/infra/modules/dns-config.bicep)
+- [`.github/workflows/deploy-web.yml`](https://github.com/ross-slaney/sqlos/blob/main/.github/workflows/deploy-web.yml)
+
+If your starting point is "I have a Next.js app and I want to host it on Azure", this is the reference I would follow: containerize the app, define the platform in Bicep, keep foundation and application deployment separate, and let GitHub Actions orchestrate the handoff between the two.
